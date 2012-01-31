@@ -1,8 +1,8 @@
 #!/usr/bin/env ruby -w
 # encoding: UTF-8
 
-require './markup'
 require 'test/unit'
+require_relative 'markup'
 
 class TestMarkup < Test::Unit::TestCase
 
@@ -11,7 +11,7 @@ class TestMarkup < Test::Unit::TestCase
   end
 
   def check_clean(input, expected, tabwidth=8)
-    assert_equal expected, TextCleaner.new(tabwidth).clean(input).with_object('') { |c, s| s << c }
+    assert_equal expected, TextCleaner.new(tabwidth).clean(input).inject('') { |s, c| s << c }
   end
 
   def test_already_cleaner
