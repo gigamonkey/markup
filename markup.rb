@@ -2,6 +2,34 @@
 # encoding: UTF-8
 
 #
+# A Token represents a character or a slightly abstracted element of a
+# text (e.g. :newline, :blankline, etc.) along with its starting
+# position in the original text. A Token can be compared for equality
+# with a plain character as long as the token is on the left-hand
+# side.
+#
+
+class Token
+
+  attr_reader :line, :column, :value
+
+  def initialize(value, line, column)
+    @value  = value
+    @line   = line
+    @column = column
+  end
+
+  def to_s
+    @value.to_s
+  end
+
+  def ==(other)
+    self.value == if other.respond_to? :value then other.value else other end
+  end
+
+end
+
+#
 # TextCleaner is responsible for converting tabs to spaces and
 # removing trailing whitespace from lines.
 #
@@ -15,32 +43,43 @@ class TextCleaner
     if block_given?
 
       whitespace = ''
-      afterCR      = false
+      afterCR    = false
+      line       = 0
+      column     = 0
 
       text.chars.each do |c|
 
-        # The previous char was a bare CR so convert to a LF
-        if afterCR and c != "\n"
+        if afterCR
+          # Either the CR was bare so we convert it to a LF or it was
+          # part of a CRLF which also gets converted to a LF.
           whitespace = ''
-          yield "\n"
+          yield Token.new("\n", line, column - 1)
+          line += 1
+          column = if c == "\n" then -1 else 0 end
         end
 
-        afterCR = false
-
-        if c == "\t"
-          whitespace += @tabspaces
-        elsif c == " "
-          whitespace += c
-        elsif c == "\n"
-          whitespace = ''
-          yield c
-        elsif c == "\r"
-          afterCR = true
-        else
-          whitespace.chars { |c| yield c }
-          whitespace = ''
-          yield c
+        if (afterCR && c != "\n") or !afterCR
+          if c == "\t"
+            whitespace += @tabspaces
+          elsif c == " "
+            whitespace += c
+          elsif c == "\n"
+            whitespace = ''
+            yield Token.new("\n", line, column)
+            line += 1
+            column = -1
+          elsif c == "\r"
+            afterCR = true
+          else
+            whitespace.chars { |c| yield c }
+            whitespace = ''
+            yield Token.new(c, line, column)
+          end
         end
+
+        afterCR = c == "\r"
+        column += 1
+
       end
 
       # Last character was a bare CR
