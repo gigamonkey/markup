@@ -52,6 +52,14 @@ class TestMarkup < Test::Unit::TestCase
 
   def test_positions
     check_tokens("abc", ["a", "b", "c"], [0,0,0], [0,1,2])
+    check_tokens("abc def",
+                 ["a", "b", "c", " ", "d", "e", "f"],
+                 [0, 0, 0, 0, 0, 0, 0],
+                 [0, 1, 2, 3, 4, 5, 6])
+    check_tokens("abc  def",
+                 ["a", "b", "c", " ", " ", "d", "e", "f"],
+                 [0, 0, 0, 0, 0, 0, 0, 0],
+                 [0, 1, 2, 3, 4, 5, 6, 7])
     check_tokens("abc\nefg",
                  ["a", "b", "c", "\n", "e", "f", "g"],
                  [0,0,0,0,1,1,1],
@@ -68,10 +76,10 @@ class TestMarkup < Test::Unit::TestCase
                  ["a", "b", "c", "\n", "\n", "e", "f", "g"],
                  [0,0,0,0,1,2,2,2],
                  [0,1,2,3,0,0,1,2])
-
-
-
-
+    check_tokens("abc   \nefg",
+                 ["a", "b", "c", "\n", "e", "f", "g"],
+                 [0, 0, 0, 0, 1, 1, 1],
+                 [0, 1, 2, 6, 0, 1, 2])
   end
 
   def check_tokens(input, values, lines, columns)

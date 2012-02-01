@@ -36,7 +36,7 @@ end
 class TextCleaner
 
   def initialize(tabwidth=8)
-    @tabspaces = " " * tabwidth
+    @tabwidth = tabwidth
   end
 
   def clean(text)
@@ -53,33 +53,36 @@ class TextCleaner
           # Either the CR was bare so we convert it to a LF or it was
           # part of a CRLF which also gets converted to a LF.
           whitespace = ''
-          yield Token.new("\n", line, column - 1)
+          yield Token.new("\n", line, column)
           line += 1
-          column = if c == "\n" then -1 else 0 end
+          column = 0
         end
 
         if (afterCR && c != "\n") or !afterCR
-          if c == "\t"
-            whitespace += @tabspaces
-          elsif c == " "
+          if c == "\t" or c == " "
             whitespace += c
           elsif c == "\n"
+            column += whitespace.length
             whitespace = ''
             yield Token.new("\n", line, column)
             line += 1
-            column = -1
-          elsif c == "\r"
-            afterCR = true
-          else
-            whitespace.chars { |c| yield c }
+            column = 0
+          elsif c != "\r"
+            whitespace.chars do |c|
+              if c == " "
+                yield Token.new(c, line, column)
+              elsif c == "\t"
+                @tabwidth.times { yield Token.new(" ", line, column) }
+              end
+              column += 1
+            end
             whitespace = ''
             yield Token.new(c, line, column)
+            column += 1
           end
         end
 
         afterCR = c == "\r"
-        column += 1
-
       end
 
       # Last character was a bare CR
