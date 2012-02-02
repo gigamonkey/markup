@@ -100,7 +100,7 @@ class Tokenizer
     newlines            = 0
     newline_position    = nil
     current_indentation = 0
-    leading_spaces      = 0
+    leading_spaces      = false
     previous_token      = nil
 
     if block_given?
@@ -112,8 +112,24 @@ class Tokenizer
           if newlines > 0
             yield Token.new(newlines == 1 ? :newline : :blank, *newline_position)
             newlines = 0
+            leading_spaces = 0
           end
-          yield t
+          if leading_spaces
+            if t == " "
+              leading_spaces += 1
+            else
+              if leading_spaces > current_indentation
+                yield Token.new([:indent, leading_spaces - current_indentation], t.line, 0)
+              elsif current_indentation > leading_spaces
+                yield Token.new([:outdent, current_indentation - leading_spaces], t.line, 0)
+              end
+              current_indentation = leading_spaces
+              leading_spaces = false
+              yield t
+            end
+          else
+            yield t
+          end
         end
         previous_token = t
       end

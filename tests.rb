@@ -126,6 +126,15 @@ class TestTokenizer < Test::Unit::TestCase
     assert_equal ["a", "b", "c", :newline, "e", "f", "g", :blank], token_values("abc\refg")
     assert_equal ["a", "b", "c", :newline, "e", "f", "g", :blank], token_values("abc\r\nefg")
     assert_equal ["a", "b", "c", :blank, "e", "f", "g", :blank], token_values("abc\n\nefg")
+
+    assert_equal ["a", "b", "c", :blank, [:indent, 2], "e", "f", "g", :blank], token_values("abc\n\n  efg\n")
+    assert_equal ["a", "b", "c", :blank, [:indent, 2], "e", "f", "g", :newline, "h", "i", "j", :blank], token_values("abc\n\n  efg\n  hij")
+    assert_equal ["a", "b", "c", :blank, [:indent, 2], "e", "f", "g", :newline, "h", "i", "j", :blank, [:outdent, 2], "k", "l", "m", :blank], token_values("abc\n\n  efg\n  hij\n\nklm\n")
+    assert_equal ["a", "b", "c", :blank, [:indent, 2], "e", "f", "g", :newline, "h", "i", "j", :blank, [:indent, 2], "k", "l", "m", :blank], token_values("abc\n\n  efg\n  hij\n\n    klm\n")
+    assert_equal ["a", "b", "c", :blank, [:indent, 2], "e", "f", "g", :newline, [:indent, 2], "h", "i", "j", :blank, [:outdent, 4], "k", "l", "m", :blank], token_values("abc\n\n  efg\n    hij\n\nklm\n")
+    assert_equal ["a", "b", "c", " ", " ", "e", "f", "g", :blank], token_values("abc  efg")
+    assert_equal ["a", "b", "c", :newline, [:indent, 2], "e", " ", " ", "f", "g", :blank], token_values("abc\n  e  fg")
+
   end
 
 
