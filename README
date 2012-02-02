@@ -6,5 +6,9 @@ The grammar of a Markup file is defined in terms of a mapping to an
 abstract syntax tree which can then be rendered into a number of
 formats, e.g. HTML, PDF, TeX, RTF, etc.
 
-It has been used to produce two books (Practical Common Lisp and
-Coders at Work) and
+This project will contain implementations of Markup processors in
+various languages. See also [1] for a Common Lisp implementation that
+evolved out of the one I used while working on my two books, Practical
+Common Lisp and Coders at Work, both of which were written in Markup.
+
+[1] https://github.com/gigamonkey/monkeylib-markup
