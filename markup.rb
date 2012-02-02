@@ -93,14 +93,49 @@ class TextCleaner
   end
 end
 
+class Tokenizer
+
+  def tokens(input_tokens)
+
+    newlines            = 0
+    newline_position    = nil
+    current_indentation = 0
+    leading_spaces      = 0
+    previous_token      = nil
+
+    if block_given?
+      input_tokens.each do |t|
+        if t == "\n"
+          if newlines == 0 then newline_position = [t.line, t.column] end
+          newlines += 1
+        else
+          if newlines > 0
+            yield Token.new(newlines == 1 ? :newline : :blank, *newline_position)
+            newlines = 0
+          end
+          yield t
+        end
+        previous_token = t
+      end
+      # Always yield a :blank at the end of file unless it was empty.
+      if previous_token
+        yield Token.new(:blank, previous_token.line, previous_token.column)
+      end
+    else
+      Enumerator.new(self, :tokens, input_tokens)
+    end
+  end
+end
+
+
 if __FILE__ == $0
 
   #f = File.new(file, "r:UTF-8")
   #puts "initializing Parser for #{f} with encoding #{f.external_encoding}"
-  e = TextCleaner.new("abc   \t\n\txyz").each
+  e = TextCleaner.new.clean("abc   \t\n\txyz")
   #h = e.each.with_object(Hash.new(0)) { |c, h| h[c] += 1 }
   #puts "h: #{h}"
-  x = e.each.with_object('') { |c, s| s << c }
+  x = e.each.with_object([]) { |c, s| s << c }
   puts x
 
 end

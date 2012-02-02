@@ -83,7 +83,7 @@ class TestMarkup < Test::Unit::TestCase
   end
 
   def check_tokens(input, values, lines, columns)
-    tokens = TextCleaner.new().clean(input).to_a
+    tokens = TextCleaner.new.clean(input).to_a
     assert_equal values, tokens.collect(&:value)
     assert_equal lines, tokens.collect(&:line)
     assert_equal columns, tokens.collect(&:column)
@@ -109,5 +109,24 @@ class TestToken < Test::Unit::TestCase
     # Kind of too bad this doesn't work.
     assert_not_equal :blank, Token.new(:blank, 0, 0)
   end
+
+end
+
+
+class TestTokenizer < Test::Unit::TestCase
+
+  def token_values(text)
+    Tokenizer.new.tokens(TextCleaner.new.clean(text)).map(&:value).to_a
+  end
+
+  def test_newline
+    assert_equal [], token_values("")
+    assert_equal [:blank], token_values("\n")
+    assert_equal ["a", "b", "c", :newline, "e", "f", "g", :blank], token_values("abc\nefg")
+    assert_equal ["a", "b", "c", :newline, "e", "f", "g", :blank], token_values("abc\refg")
+    assert_equal ["a", "b", "c", :newline, "e", "f", "g", :blank], token_values("abc\r\nefg")
+    assert_equal ["a", "b", "c", :blank, "e", "f", "g", :blank], token_values("abc\n\nefg")
+  end
+
 
 end
