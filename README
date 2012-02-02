@@ -1,3 +1,6 @@
+[N.B. This is a work in progress of a new implementation. Not yet
+ready for use.]
+
 Markup is a text markup language primarily useful for prose documents
 such as books and articles. It is designed to be editable in a plain
 text editor and to allow for arbitrary logical markup.
