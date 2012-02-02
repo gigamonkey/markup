@@ -2,6 +2,7 @@
 # encoding: UTF-8
 
 require 'test/unit'
+require 'json'
 require_relative 'markup'
 
 class TestMarkup < Test::Unit::TestCase
@@ -171,5 +172,39 @@ class TestElement < Test::Unit::TestCase
     assert_equal e.each.to_a, e.children
   end
 
+  def assert_from_to_array(a)
+    assert_equal a, Element.from_array(a).to_a, "a: #{a}"
+  end
+
+  def test_from_to_array
+    assert_from_to_array [:body]
+    assert_from_to_array [:body, [:p, "foo"]]
+    assert_from_to_array [:body, [:p, "foo"]]
+    assert_from_to_array [:body, [:p, "foo"], [:p, "bar"]]
+  end
+end
+
+
+class TestFiles < Test::Unit::TestCase
+
+  def json_to_array(json)
+    convert_array(JSON.parse(File.open(json).read))
+  end
+
+  def convert_array(a)
+    tag, *rest = a
+    [tag.to_sym, *rest.map { |c| c.is_a?(String) ? c : convert_array(c) }]
+  end
+
+  def test_files
+    Dir.glob("./tests/*.json") do |json|
+      dir    = File.dirname(json)
+      base   = File.basename(json, ".json")
+      expect = json_to_array(json)
+      got    = Markup.new.parse_file("#{dir}/#{base}.txt").to_a
+
+      assert_equal expect, got, base
+    end
+  end
 
 end

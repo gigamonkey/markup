@@ -35,7 +35,7 @@ class Element
 
   def Element.from_array(array)
     tag, *rest = array
-    Element.new(tag, *rest.map { |c| c.is_a?(String) ? c : Element.from_array(c) })
+    Element.new(tag, *rest.map { |c| c.is_a?(Array) ? Element.from_array(c) : c })
   end
 
   def initialize(tag, *children)
@@ -65,6 +65,10 @@ class Element
 
   def to_s
     "(#{self.tag} #{self.children.inject('') { |s, t| s << t.to_s }})"
+  end
+
+  def to_a
+    [@tag, *@children.map { |c| c.is_a?(Element) ? c.to_a : c }]
   end
 
 end
@@ -188,18 +192,17 @@ end
 class Parser
 
   def parse(tokens)
-
+    body = Element.new(:body)
   end
 
 end
 
-
-
 class Markup
 
   def initialize(tabwidth=8)
-    @cleaner = TextCleaner.new(tabwidth)
+    @cleaner   = TextCleaner.new(tabwidth)
     @tokenizer = Tokenizer.new
+    @parser    = Parser.new
   end
 
   def parse_file(file)
@@ -211,11 +214,10 @@ class Markup
   end
 
   def parse_chars(text)
-    @tokenizer.tokens(@cleaner.clean(text)).to_a
+    @parser.parse(@tokenizer.tokens(@cleaner.clean(text)))
   end
 
 end
-
 
 if __FILE__ == $0
 
