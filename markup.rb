@@ -29,9 +29,51 @@ class Token
 
 end
 
+class Element
+
+  attr_reader :tag, :children
+
+  def Element.from_array(array)
+    tag, *rest = array
+    Element.new(tag, *rest.map { |c| c.is_a?(String) ? c : Element.from_array(c) })
+  end
+
+  def initialize(tag, *children)
+    @tag      = tag
+    @children = children
+  end
+
+  def each(&block)
+    @children.each(&block)
+  end
+
+  def add_text(text)
+    if @children[-1].is_a?(String)
+      @children[-1] << text
+    else
+      add_child(text)
+    end
+  end
+
+  def add_child(child)
+    @children.push(child)
+  end
+
+  def just_text
+    @children.inject('') { |text, c| text << (c.is_a?(Element) ? c.just_text : c.to_s) }
+  end
+
+  def to_s
+    "(#{self.tag} #{self.children.inject('') { |s, t| s << t.to_s }})"
+  end
+
+end
+
 #
 # TextCleaner is responsible for converting tabs to spaces and
-# removing trailing whitespace from lines.
+# removing trailing whitespace from lines. The TextCleaner#clean
+# method iterates over tokens representing the characters in the text
+# with some of them removed or replaced by other characters.
 #
 class TextCleaner
 
@@ -143,15 +185,58 @@ class Tokenizer
   end
 end
 
+class Parser
+
+  def parse(tokens)
+
+  end
+
+end
+
+
+
+class Markup
+
+  def initialize(tabwidth=8)
+    @cleaner = TextCleaner.new(tabwidth)
+    @tokenizer = Tokenizer.new
+  end
+
+  def parse_file(file)
+    File.open(file, "r:UTF-8") { |f| parse_chars(f) }
+  end
+
+  def parse_text(text)
+    parse_chars(text.encoding == 'UTF-8' ? text : text.encode('UTF-8'))
+  end
+
+  def parse_chars(text)
+    @tokenizer.tokens(@cleaner.clean(text)).to_a
+  end
+
+end
+
 
 if __FILE__ == $0
 
-  #f = File.new(file, "r:UTF-8")
-  #puts "initializing Parser for #{f} with encoding #{f.external_encoding}"
-  e = TextCleaner.new.clean("abc   \t\n\txyz")
-  #h = e.each.with_object(Hash.new(0)) { |c, h| h[c] += 1 }
-  #puts "h: #{h}"
-  x = e.each.with_object([]) { |c, s| s << c }
-  puts x
+  puts Markup.new.parse_text("abc\n\nefg")
+  #puts Markup.new.parse_file('foo.txt')
+
+  p = Element.new(:p, "normal text. ", Element.new(:i, "this is italic"), " more normal text.")
+
+  puts "*** passing block ***"
+  p.each { |c| puts c }
+
+  x = p.each
+  puts "*** got enumerator #{x} ***"
+  x.each { |c| puts c }
+
+
+  puts "*** for ***"
+  for e in p
+    puts e
+  end
+
+  puts "\n#{p.just_text}"
 
 end

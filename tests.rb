@@ -139,3 +139,37 @@ class TestTokenizer < Test::Unit::TestCase
 
 
 end
+
+class TestElement < Test::Unit::TestCase
+
+  def test_just_text
+    assert_equal "foo", Element.new(:p, "foo").just_text
+    assert_equal "foobar", Element.new(:p, "foo", "bar").just_text
+    assert_equal "foobar", Element.new(:p, "foo", Element.new(:i, "bar")).just_text
+    assert_equal "foobarbaz", Element.new(:p, "foo", Element.new(:i, "bar"), "baz").just_text
+    assert_equal "foobarbaz", Element.new(:p, "foo", Element.new(:i, "bar", Element.new(:b, "baz"))).just_text
+  end
+
+  def test_add_text
+    e = Element.new(:p)
+    assert_equal "", e.just_text
+    e.add_text("foo")
+    assert_equal "foo", e.just_text
+    e.add_text("bar")
+    assert_equal "foobar", e.just_text
+  end
+
+  def test_add_child
+    e = Element.new(:p)
+    assert_equal [], e.children
+    e.add_child(Element.new(:i))
+    assert_equal :i, e.children[0].tag
+  end
+
+  def test_each
+    e = Element.from_array([:p, "foo", [:i, "bar"], "baz"])
+    assert_equal e.each.to_a, e.children
+  end
+
+
+end
