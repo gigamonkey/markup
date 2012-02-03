@@ -208,18 +208,24 @@ end
 class DocumentParser < Parser
 
   def grok(token)
-    case token.value
+    what, extra = token.value
+
+    case what
     when :blank
     when :newline
       raise "Parse error #{token}"
     when "*"
       @markup.push_parser(HeaderParser.new(@markup))
-    when [:indent, 2]
-      bq = @markup.open_element(:blockquote)
-      @markup.push_parser(BlockquoteParser.new(@markup, bq))
-    when [:indent, 3]
-      v = @markup.open_element(:pre)
-      @markup.push_parser(VerbatimParser.new(@markup, v))
+    when :indent
+      indentation = extra
+      case
+      when indentation == 2
+        bq = @markup.open_element(:blockquote)
+        @markup.push_parser(BlockquoteParser.new(@markup, bq))
+      when indentation >= 3
+        v = @markup.open_element(:pre)
+        @markup.push_parser(VerbatimParser.new(@markup, v, indentation - 3))
+      end
     else
       p = @markup.open_element(:p)
       p.add_text(token.value)
@@ -298,10 +304,10 @@ end
 
 class VerbatimParser < Parser
 
-  def initialize(markup, verbatim)
+  def initialize(markup, verbatim, initial_indentation=0)
     super(markup)
     @verbatim          = verbatim
-    @extra_indentation = 0
+    @extra_indentation = initial_indentation
     @blanks            = 0
     @beginning_of_line = true
   end
@@ -403,8 +409,8 @@ if __FILE__ == $0
 
   ARGV.each do |file|
     puts "\n\nFile: #{file}:::\n"
-    print Markup.new.parse_file(file).to_a
-    #File.open(file) { |f| puts Markup.new.tokenize(f).to_a }
+    #print Markup.new.parse_file(file).to_a
+    File.open(file) { |f| puts Markup.new.tokenize(f).to_a }
   end
 
 end
