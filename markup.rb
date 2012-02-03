@@ -19,8 +19,12 @@ class Token
     @column = column
   end
 
-  def to_s
+  def text
     @value.to_s
+  end
+
+  def to_s
+    "#{@value} (line: #{@line}; column: #{@column}"
   end
 
   def ==(other)
@@ -220,7 +224,8 @@ class ParagraphParser < Parser
   def grok(token)
     case token.value
     when :blank
-      @markup.close_element(@p)
+      @markup.close_element(@p, token)
+      @markup.pop_parser
     when :newline
       @p.add_text(' ')
     else
@@ -281,9 +286,9 @@ class Markup
     @elements.push(e).last
   end
 
-  def close_element(element)
+  def close_element(element, token=nil)
     unless element.equal?(@elements[-1])
-      raise "Wrong element."
+      raise "Wrong element #{token}"
     end
     @elements.pop
   end
@@ -292,24 +297,9 @@ end
 
 if __FILE__ == $0
 
-  puts Markup.new.parse_text("abc\n\nefg")
-  #puts Markup.new.parse_file('foo.txt')
-
-  p = Element.new(:p, "normal text. ", Element.new(:i, "this is italic"), " more normal text.")
-
-  puts "*** passing block ***"
-  p.each { |c| puts c }
-
-  x = p.each
-  puts "*** got enumerator #{x} ***"
-  x.each { |c| puts c }
-
-
-  puts "*** for ***"
-  for e in p
-    puts e
+  ARGV.each do |file|
+    puts "\n\nFile: #{file}:::\n"
+    print Markup.new.parse_file(file).to_a
   end
-
-  puts "\n#{p.just_text}"
 
 end
