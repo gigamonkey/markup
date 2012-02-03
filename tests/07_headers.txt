@@ -14,10 +14,10 @@
 
 ******** This is a octonary header.
 
-********* This is a nonary header.
+********* This is a novenary header.
 
-********** This is a denary header.
+********** This is a decenary header.
 
-*********** There's no name for what kind of header this is.
+*********** This is a undecenary header.
 
-************ This is a duodenary header.
+************ This is a duodecenary header.

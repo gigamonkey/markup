@@ -7,7 +7,7 @@
  ["h6", "This is a senary header."],
  ["h7", "This is a septenary header."],
  ["h8", "This is a octonary header."],
- ["h9", "This is a nonary header."],
- ["h10", "This is a denary header."],
- ["h11", "There's no name for what kind of header this is."],
- ["h12", "This is a duodenary header."]]
+ ["h9", "This is a novenary header."],
+ ["h10", "This is a decenary header."],
+ ["h11", "This is a undecenary header."],
+ ["h12", "This is a duodecenary header."]]
