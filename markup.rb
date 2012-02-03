@@ -217,6 +217,9 @@ class DocumentParser < Parser
     when [:indent, 2]
       bq = @markup.open_element(:blockquote)
       @markup.push_parser(BlockquoteParser.new(@markup, bq))
+    when [:indent, 3]
+      v = @markup.open_element(:pre)
+      @markup.push_parser(VerbatimParser.new(@markup, v))
     else
       p = @markup.open_element(:p)
       p.add_text(token.value)
@@ -286,15 +289,51 @@ class BlockquoteParser < Parser
       @markup.close_element(@bq, token)
       @markup.pop_parser
     else
-      #puts "Opening paragraph for #{token}"
       p = @markup.open_element(:p)
       p.add_text(token.value)
       @markup.push_parser(ParagraphParser.new(@markup, p))
     end
   end
-
 end
 
+class VerbatimParser < Parser
+
+  def initialize(markup, verbatim)
+    super(markup)
+    @verbatim          = verbatim
+    @extra_indentation = 0
+    @blanks            = 0
+    @beginning_of_line = true
+  end
+
+  def grok(token)
+    case
+    when token.value == :blank
+      @blanks += 1
+    when token.value == :newline
+      @verbatim.add_text("\n")
+    when token.value.is_a?(Array) && (token.value[0] == :indent)
+      @extra_indentation += token.value[1]
+      @beginning_of_line = true
+    when token.value.is_a?(Array) && (token.value[0] == :outdent)
+      @extra_indentation -= token.value[1]
+      @beginning_of_line = true
+
+      if @extra_indentation == -3
+        @markup.close_element(@verbatim, token)
+        @markup.pop_parser
+      end
+    else
+      @blanks.times { @verbatim.add_text("\n\n") }
+      @blanks = 0
+      if @beginning_of_line
+        @extra_indentation.times { @verbatim.add_text(" ") }
+        @beginning_of_line = false
+      end
+      @verbatim.add_text(token.value)
+    end
+  end
+end
 
 class Markup
 
@@ -364,8 +403,8 @@ if __FILE__ == $0
 
   ARGV.each do |file|
     puts "\n\nFile: #{file}:::\n"
-    #print Markup.new.parse_file(file).to_a
-    File.open(file) { |f| puts Markup.new.tokenize(f).to_a }
+    print Markup.new.parse_file(file).to_a
+    #File.open(file) { |f| puts Markup.new.tokenize(f).to_a }
   end
 
 end
