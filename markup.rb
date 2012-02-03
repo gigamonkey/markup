@@ -118,10 +118,10 @@ class TextCleaner
             line += 1
             column = 0
           elsif c != "\r"
-            whitespace.chars do |c|
-              if c == " "
-                yield Token.new(c, line, column)
-              elsif c == "\t"
+            whitespace.chars do |w|
+              if w == " "
+                yield Token.new(w, line, column)
+              elsif w == "\t"
                 @tabwidth.times { yield Token.new(" ", line, column) }
               end
               column += 1
