@@ -206,6 +206,8 @@ class DocumentParser < Parser
     when :blank
     when :newline
       raise "Parse error #{token}"
+    when "*"
+      @markup.push_parser(HeaderParser.new(@markup))
     else
       p = @markup.open_element(:p)
       p.add_text(token.value)
@@ -230,6 +232,27 @@ class ParagraphParser < Parser
       @p.add_text(' ')
     else
       @p.add_text(token.value)
+    end
+  end
+end
+
+class HeaderParser < Parser
+
+  def initialize(markup)
+    super(markup)
+    @stars = 1
+  end
+
+  def grok(token)
+    case token.value
+    when "*"
+      @stars += 1
+    when " "
+      h = @markup.open_element("h#{@stars}".to_sym)
+      @markup.pop_parser
+      @markup.push_parser(ParagraphParser.new(@markup, h))
+    else
+      raise "Bad token: #{token}"
     end
   end
 end
