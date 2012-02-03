@@ -190,11 +190,43 @@ class Tokenizer
 end
 
 class Parser
+  def initialize(markup)
+    @markup = markup
+  end
+end
 
-  def parse(tokens)
-    body = Element.new(:body)
+class DocumentParser < Parser
+
+  def grok(token)
+    case token.value
+    when :blank
+    when :newline
+      raise "Parse error #{token}"
+    else
+      p = @markup.open_element(:p)
+      p.add_text(token.value)
+      @markup.push_parser(ParagraphParser.new(@markup, p))
+    end
+  end
+end
+
+class ParagraphParser < Parser
+
+  def initialize(markup, p)
+    super(markup)
+    @p = p
   end
 
+  def grok(token)
+    case token.value
+    when :blank
+      @markup.close_element(@p)
+    when :newline
+      @p.add_text(' ')
+    else
+      @p.add_text(token.value)
+    end
+  end
 end
 
 class Markup
@@ -202,19 +234,58 @@ class Markup
   def initialize(tabwidth=8)
     @cleaner   = TextCleaner.new(tabwidth)
     @tokenizer = Tokenizer.new
-    @parser    = Parser.new
+    @elements  = []
+    @parsers   = []
   end
 
+  #
+  # Parse the named file, which should be encoded in UTF-8
+  #
   def parse_file(file)
-    File.open(file, "r:UTF-8") { |f| parse_chars(f) }
+    File.open(file, "r:UTF-8") { |f| parse(f) }
   end
 
+  #
+  # Parse the given string.
+  #
   def parse_text(text)
-    parse_chars(text.encoding == 'UTF-8' ? text : text.encode('UTF-8'))
+    parse(text.encoding == 'UTF-8' ? text : text.encode('UTF-8'))
   end
 
-  def parse_chars(text)
-    @parser.parse(@tokenizer.tokens(@cleaner.clean(text)))
+  #
+  # Parse any text that responds to the chars method.
+  #
+  def parse(text)
+    tokens = @tokenizer.tokens(@cleaner.clean(text))
+    push_parser(DocumentParser.new(self))
+    body = open_element(:body)
+    tokens.each { |tok| current_parser.grok(tok) }
+    close_element(body)
+  end
+
+  def current_parser
+    @parsers.last
+  end
+
+  def push_parser(parser)
+    @parsers.push(parser)
+  end
+
+  def pop_parser
+    @parsers.pop
+  end
+
+  def open_element(tag)
+    e = Element.new(tag)
+    @elements.last.add_child(e) unless @elements.empty?
+    @elements.push(e).last
+  end
+
+  def close_element(element)
+    unless element.equal?(@elements[-1])
+      raise "Wrong element."
+    end
+    @elements.pop
   end
 
 end
