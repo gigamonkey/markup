@@ -24,7 +24,7 @@ class Token
   end
 
   def to_s
-    "#{@value} (line: #{@line}; column: #{@column}"
+    "#<Token: '#{@value}'; line: #{@line}; column: #{@column}>"
   end
 
   def ==(other)
@@ -150,7 +150,7 @@ class Tokenizer
     newlines            = 0
     newline_position    = nil
     current_indentation = 0
-    leading_spaces      = false
+    leading_spaces      = 0
     previous_token      = nil
 
     if block_given?
@@ -164,6 +164,7 @@ class Tokenizer
             newlines = 0
             leading_spaces = 0
           end
+
           if leading_spaces
             if t == " "
               leading_spaces += 1
@@ -186,7 +187,12 @@ class Tokenizer
       # Always yield a :blank at the end of file unless it was empty.
       if previous_token
         yield Token.new(:blank, previous_token.line, previous_token.column)
+
+        if current_indentation > 0
+          yield Token.new([:outdent, current_indentation], previous_token.line, previous_token.column)
+        end
       end
+
     else
       Enumerator.new(self, :tokens, input_tokens)
     end
@@ -208,6 +214,9 @@ class DocumentParser < Parser
       raise "Parse error #{token}"
     when "*"
       @markup.push_parser(HeaderParser.new(@markup))
+    when [:indent, 2]
+      bq = @markup.open_element(:blockquote)
+      @markup.push_parser(BlockquoteParser.new(@markup, bq))
     else
       p = @markup.open_element(:p)
       p.add_text(token.value)
@@ -257,6 +266,36 @@ class HeaderParser < Parser
   end
 end
 
+class BlockquoteParser < Parser
+  def initialize(markup, bq)
+    super(markup)
+    @bq = bq
+  end
+
+  def grok(token)
+    case token.value
+    when :blank
+    when :newline
+      raise "Parse error #{token}"
+    when "*"
+      @markup.push_parser(HeaderParser.new(@markup))
+    when [:indent, 2]
+      bq = @markup.open_element(:blockquote)
+      @markup.push_parser(BlockquoteParser.new(@markup, bq))
+    when [:outdent, 2]
+      @markup.close_element(@bq, token)
+      @markup.pop_parser
+    else
+      #puts "Opening paragraph for #{token}"
+      p = @markup.open_element(:p)
+      p.add_text(token.value)
+      @markup.push_parser(ParagraphParser.new(@markup, p))
+    end
+  end
+
+end
+
+
 class Markup
 
   def initialize(tabwidth=8)
@@ -284,11 +323,14 @@ class Markup
   # Parse any text that responds to the chars method.
   #
   def parse(text)
-    tokens = @tokenizer.tokens(@cleaner.clean(text))
     push_parser(DocumentParser.new(self))
     body = open_element(:body)
-    tokens.each { |tok| current_parser.grok(tok) }
+    tokenize(text).each { |tok| current_parser.grok(tok) }
     close_element(body)
+  end
+
+  def tokenize(text)
+    @tokenizer.tokens(@cleaner.clean(text))
   end
 
   def current_parser
@@ -311,7 +353,7 @@ class Markup
 
   def close_element(element, token=nil)
     unless element.equal?(@elements[-1])
-      raise "Wrong element #{token}"
+      raise "Trying to close element #{element}, found #{@elements} at #{token}"
     end
     @elements.pop
   end
@@ -322,7 +364,8 @@ if __FILE__ == $0
 
   ARGV.each do |file|
     puts "\n\nFile: #{file}:::\n"
-    print Markup.new.parse_file(file).to_a
+    #print Markup.new.parse_file(file).to_a
+    File.open(file) { |f| puts Markup.new.tokenize(f).to_a }
   end
 
 end
