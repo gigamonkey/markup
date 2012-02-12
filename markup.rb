@@ -220,8 +220,7 @@ class DocumentParser < Parser
       indentation = extra
       case
       when indentation == 2
-        bq = @markup.open_element(:blockquote)
-        @markup.push_parser(BlockquoteParser.new(@markup, bq))
+        @markup.push_parser(BlockquoteOrListParser.new(@markup))
       when indentation >= 3
         v = @markup.open_element(:pre)
         @markup.push_parser(VerbatimParser.new(@markup, v, indentation - 3))
@@ -275,7 +274,33 @@ class HeaderParser < Parser
   end
 end
 
+class BlockquoteOrListParser < Parser
+
+  def initialize(markup)
+    super(markup)
+  end
+
+  def grok(token)
+    tag, parserClass =
+      case token.value
+      when '#'
+        [:ol, ListParser]
+      when '-'
+        [:ul, ListParser]
+      else
+        [:blockquote, BlockquoteParser]
+      end
+
+    element = @markup.open_element(tag)
+    parser  = parserClass.new(@markup, element)
+    @markup.pop_parser
+    @markup.push_parser(parser)
+    parser.grok(token)
+  end
+end
+
 class BlockquoteParser < Parser
+
   def initialize(markup, bq)
     super(markup)
     @bq = bq
@@ -301,6 +326,90 @@ class BlockquoteParser < Parser
     end
   end
 end
+
+class ListParser < Parser
+
+  def initialize(markup, list)
+    super(markup)
+    @list   = list
+    @marker = nil
+    @item   = nil
+  end
+
+  def grok(token)
+    # The first token we see is our list marker (either '#' or '-').
+    if @marker.nil? then @marker = token.value end
+
+    case token.value
+    when @marker
+      if not @item.nil? then @markup.close_element(@item, token) end
+      @item = @markup.open_element(:li)
+      @markup.push_parser(TokenEater.new(@markup, ' ') do
+                            @markup.pop_parser
+                            @markup.push_parser(ListParagraphParser.new(@markup))
+                          end)
+    when [:outdent, 2]
+      @markup.close_element(@item, token)
+      @markup.close_element(@list, token)
+      @markup.pop_parser
+    else
+      raise "Parse error: expected #{@marker} got #{token}"
+    end
+  end
+end
+
+class TokenEater < Parser
+
+  def initialize(markup, value, &block)
+    super(markup)
+    @value = value
+    @block = block
+  end
+
+  def grok(token)
+    case token.value
+    when @value
+      @block.call
+    else
+      raise "Parse error expected <#{@value}> got #{token}"
+    end
+  end
+end
+
+class ListParagraphParser < Parser
+
+  # Like a regular paragraph parser except that after the first
+  # newline we expect to see an [:indent, 2] token which we ignore.
+  # Thereafter the indentation will be set up properly. When we see an
+  # [:outdent, 2] it's time for another list item. If we get a larger
+  # :outdent then the list is closed.
+
+  def initialize(markup)
+    super(markup)
+    @p = markup.open_element(:p)
+    @saw_first_indent = false
+  end
+
+  def grok(token)
+    case token.value
+    when :blank
+      @markup.close_element(@p, token)
+      @markup.pop_parser
+    when :newline
+      if not @saw_first_indent
+        @markup.push_parser(TokenEater.new(markup, :indent) { @markup.pop_parser })
+      end
+      @markup.close_element(@p, token)
+      @markup.pop_parser
+    when :newline
+      @p.add_text(' ')
+    else
+      @p.add_text(token.value)
+    end
+  end
+end
+
+
 
 class VerbatimParser < Parser
 
