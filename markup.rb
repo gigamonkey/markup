@@ -40,7 +40,8 @@ end
 
 class Element
 
-  attr_reader :tag, :children
+  attr_reader :children
+  attr_accessor :tag
 
   def Element.from_array(array)
     tag, *rest = array
@@ -260,7 +261,7 @@ class DocumentParser < Parser
         @markup.push_parser(VerbatimParser.new(@markup, v, indentation - 3))
       end
     when '['
-      @markup.push_parser(LinkdefParser.new(@markup))
+      @markup.push_parser(AmbiguousLinkParser.new(@markup))
       @markup.push_parser(LinkParser.new(@markup))
     when '}'
       if @brace_is_eof
@@ -384,6 +385,12 @@ class LinkParser < Parser
       @markup.close_element(@link, token)
     when '\\'
       @markup.push_parser(SlashParser.new(@markup))
+    when :newline
+      if @key
+        @key.add_text(' ')
+      else
+        @link.add_text(' ')
+      end
     else
       if @key
         @key.add_text(token.value)
@@ -394,11 +401,44 @@ class LinkParser < Parser
   end
 end
 
-class LinkdefParser < Parser
+
+class AmbiguousLinkParser < Parser
 
   def initialize(markup)
     super(markup)
-    @linkdef = @markup.open_element(:link_def)
+    @element = @markup.open_element(nil)
+    @tokens = []
+  end
+
+  def grok(token)
+    if @tokens.length == 0 and token.value == ' '
+      @tokens << token
+    elsif @tokens.length == 1 and token.value == '<'
+      @element.tag = :link_def
+      @markup.pop_parser # ourself
+      @markup.push_parser(LinkdefParser.new(@markup, false))
+      @markup.current_parser.grok(token)
+    else
+      @element.tag = :p
+      @markup.pop_parser
+      @markup.push_parser(ParagraphParser.new(@markup, @element))
+      @tokens << token
+      @tokens.each { |tok| @markup.current_parser.grok(tok) }
+    end
+  end
+end
+
+
+
+class LinkdefParser < Parser
+
+  def initialize(markup, open_element=true)
+    super(markup)
+    if open_element
+      @linkdef = @markup.open_element(:link_def)
+    else
+      @linkdef = @markup.current_element
+    end
   end
 
   def grok(token)
@@ -663,7 +703,13 @@ class Markup
   def parse(text)
     push_parser(DocumentParser.new(self))
     body = open_element(:body)
-    tokenize(text).each { |tok| current_parser.grok(tok) }
+    tokenize(text).each do |tok|
+      begin
+        current_parser.grok(tok)
+      rescue
+        puts "Problem grokking token #{tok}"
+      end
+    end
     close_element(body)
   end
 
