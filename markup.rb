@@ -157,7 +157,6 @@ class Tokenizer
 
     newlines            = 0
     newline_position    = nil
-    #current_indentation = 0
     leading_spaces      = 0
     previous_token      = nil
 
