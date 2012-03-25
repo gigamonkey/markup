@@ -302,7 +302,7 @@ class BlockquoteOrListParser < Parser
       when '-'
         [:ul, ListParser]
       else
-        [:blockquote, BlockquoteParser]
+        [:blockquote, IndentedElementParser]
       end
 
     element = @markup.open_element(tag)
@@ -313,11 +313,11 @@ class BlockquoteOrListParser < Parser
   end
 end
 
-class BlockquoteParser < Parser
+class IndentedElementParser < Parser
 
-  def initialize(markup, bq)
+  def initialize(markup, element)
     super(markup)
-    @bq = bq
+    @element = element
   end
 
   def grok(token)
@@ -341,7 +341,7 @@ class BlockquoteParser < Parser
     when :outdent
       outdentation = extra
       if outdentation >= 2
-        @markup.close_element(@bq, token)
+        @markup.close_element(@element, token)
         @markup.pop_parser
       end
       # Pass along any extra outdentation.
@@ -365,6 +365,15 @@ class ListParser < Parser
     @marker = nil
   end
 
+  def space_eater(token)
+    TokenEater.new(@markup, ' ') do
+      @markup.pop_parser
+      token.tokenizer.add_indentation(2)
+      item = @markup.open_element(:li)
+      @markup.push_parser(IndentedElementParser.new(@markup, item))
+    end
+  end
+
   def grok(token)
     # The first token we see is our list marker (either '#' or '-').
     if @marker.nil? then @marker = token.value end
@@ -373,12 +382,7 @@ class ListParser < Parser
 
     case what
     when @marker
-      @markup.push_parser(TokenEater.new(@markup, ' ') do
-                            @markup.pop_parser
-                            token.tokenizer.add_indentation(2)
-                            item = @markup.open_element(:li)
-                            @markup.push_parser(ListItemParser.new(@markup, item))
-                          end)
+      @markup.push_parser(space_eater(token))
     when :outdent
       outdentation = extra
       if outdentation >= 2
@@ -391,50 +395,6 @@ class ListParser < Parser
       end
     else
       raise "Parse error: expected #{@marker} or :outdent got #{token}"
-    end
-  end
-end
-
-
-class ListItemParser < Parser
-
-  def initialize(markup, item)
-    super(markup)
-    @item = item
-  end
-
-  def grok(token)
-    what, extra = token.value
-
-    case what
-    when :blank
-    when :newline
-      raise "Parse error #{token}"
-    when "*"
-      @markup.push_parser(HeaderParser.new(@markup))
-    when :indent
-      indentation = extra
-      case
-      when indentation == 2
-        @markup.push_parser(BlockquoteOrListParser.new(@markup))
-      when indentation >= 3
-        v = @markup.open_element(:pre)
-        @markup.push_parser(VerbatimParser.new(@markup, v, indentation - 3))
-      end
-    when :outdent
-      outdentation = extra
-      if outdentation >= 2
-        @markup.close_element(@item, token)
-        @markup.pop_parser
-      end
-      # Pass along any extra outdentation.
-      if outdentation > 2
-        @markup.current_parser.grok(Token.new([:outdent, outdentation - 2], token.line, 0, token.tokenizer))
-      end
-    else
-      p = @markup.open_element(:p)
-      p.add_text(token.value)
-      @markup.push_parser(ParagraphParser.new(@markup, p))
     end
   end
 end
