@@ -409,10 +409,9 @@ class IndentedElementParser < Parser
     when :outdent
       expand_outdentation(extra, token, @element)
     else
-      # FIXME: this could be tagged text
       p = @markup.open_element(:p)
-      p.add_text(token.value)
       @markup.push_parser(ParagraphParser.new(@markup, p))
+      @markup.current_parser.grok(token)
     end
   end
 end
