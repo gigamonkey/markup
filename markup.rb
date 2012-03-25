@@ -13,8 +13,8 @@ require 'json'
 
 class Token
 
-  attr_reader :line, :column, :value, :tokenizer
-  attr_writer :tokenizer
+  attr_reader :line, :column, :value
+  attr_accessor :tokenizer
 
   def initialize(value, line, column, tokenizer=nil)
     @value     = value
@@ -217,6 +217,19 @@ class Parser
   def initialize(markup)
     @markup = markup
   end
+
+  def expand_outdentation(outdentation, token, element)
+    if outdentation >= 2
+      @markup.close_element(element, token)
+      @markup.pop_parser
+    end
+    # Pass along any extra outdentation.
+    if outdentation > 2
+      new_outdent = Token.new([:outdent, outdentation - 2], token.line, 0, token.tokenizer)
+      @markup.current_parser.grok(new_outdent)
+    end
+  end
+
 end
 
 class DocumentParser < Parser
@@ -339,15 +352,7 @@ class IndentedElementParser < Parser
         @markup.push_parser(VerbatimParser.new(@markup, v, indentation - 3))
       end
     when :outdent
-      outdentation = extra
-      if outdentation >= 2
-        @markup.close_element(@element, token)
-        @markup.pop_parser
-      end
-      # Pass along any extra outdentation.
-      if outdentation > 2
-        @markup.current_parser.grok(Token.new([:outdent, outdentation - 2], token.line, 0, token.tokenizer))
-      end
+      expand_outdentation(extra, token, @element)
     else
       p = @markup.open_element(:p)
       p.add_text(token.value)
@@ -384,15 +389,7 @@ class ListParser < Parser
     when @marker
       @markup.push_parser(space_eater(token))
     when :outdent
-      outdentation = extra
-      if outdentation >= 2
-        @markup.close_element(@list, token)
-        @markup.pop_parser
-      end
-      # Pass along any extra outdentation.
-      if outdentation > 2
-        @markup.current_parser.grok(Token.new([:outdent, outdentation - 2], token.line, 0))
-      end
+      expand_outdentation(extra, token, @list)
     else
       raise "Parse error: expected #{@marker} or :outdent got #{token}"
     end
@@ -428,18 +425,22 @@ class VerbatimParser < Parser
   end
 
   def grok(token)
-    case
-    when token.value == :blank
+    what, extra = token.value
+
+    case what
+    when :blank
       @blanks += 1
-    when token.value == :newline
+    when :newline
       @verbatim.add_text("\n")
-    when token.value.is_a?(Array) && (token.value[0] == :indent)
-      @extra_indentation += token.value[1]
+    when :indent
+      @extra_indentation += extra
       @beginning_of_line = true
-    when token.value.is_a?(Array) && (token.value[0] == :outdent)
-      @extra_indentation -= token.value[1]
+    when :outdent
+      @extra_indentation -= extra
       @beginning_of_line = true
 
+      # FIXME: write a test of nested verbatim. Probably need to
+      # expand outdentation here too.
       if @extra_indentation == -3
         @markup.close_element(@verbatim, token)
         @markup.pop_parser
