@@ -382,6 +382,8 @@ class LinkParser < Parser
         @markup.close_element(@key, token)
       end
       @markup.close_element(@link, token)
+    when '\\'
+      @markup.push_parser(SlashParser.new(@markup))
     else
       if @key
         @key.add_text(token.value)
@@ -603,8 +605,10 @@ class VerbatimParser < Parser
     case what
     when :blank
       @blanks += 1
+      @beginning_of_line = true
     when :newline
       @verbatim.add_text("\n")
+      @beginning_of_line = true
     when :indent
       @extra_indentation += extra
       @beginning_of_line = true
