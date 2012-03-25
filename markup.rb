@@ -241,6 +241,8 @@ class DocumentParser < Parser
       raise "Parse error #{token}"
     when "*"
       @markup.push_parser(HeaderParser.new(@markup))
+    when '-'
+      @markup.push_parser(PossibleModelineParser.new(@markup, token))
     when :indent
       indentation = extra
       case
@@ -253,6 +255,33 @@ class DocumentParser < Parser
     else
       p = @markup.open_element(:p)
       @markup.push_parser(ParagraphParser.new(@markup, p))
+      @markup.current_parser.grok(token)
+    end
+  end
+end
+
+class PossibleModelineParser < Parser
+
+  def initialize(markup, token)
+    super(markup)
+    @tokens = [ token ]
+    @in_modeline = false
+  end
+
+  def grok(token)
+    if @tokens.length == 1 and token.value == '*'
+      @tokens << token
+    elsif @tokens.length == 2 and token.value == '-'
+      @in_modeline = true
+    elsif @in_modeline
+      if token.value == :blank
+        @markup.pop_parser
+      end
+    else
+      @markup.pop_parser
+      p = @markup.open_element(:p)
+      @markup.push_parser(ParagraphParser.new(@markup, p))
+      @tokens.each { |tok| @markup.current_parser.grok(tok) }
       @markup.current_parser.grok(token)
     end
   end
