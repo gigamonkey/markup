@@ -237,8 +237,7 @@ class DocumentParser < Parser
     what, extra = token.value
 
     case what
-    when :blank
-    when :newline
+    when :blank, :newline
       raise "Parse error #{token}"
     when "*"
       @markup.push_parser(HeaderParser.new(@markup))
@@ -292,12 +291,27 @@ class BraceDelimetedParser < Parser
       @markup.close_element(@element)
       @markup.pop_parser
     when '\\'
-      @markup.push_parser(NameParser.new(@markup))
+      @markup.push_parser(SlashParser.new(@markup))
     else
       @element.add_text(token.value)
     end
   end
+end
 
+
+class SlashParser < Parser
+
+  def grok(token)
+    case token.value
+    when '\\', '{', '}'
+      @markup.pop_parser
+      @markup.current_element.add_text(token.value)
+    else
+      @markup.pop_parser
+      @markup.push_parser(NameParser.new(@markup))
+      @markup.current_parser.grok(token)
+    end
+  end
 end
 
 class ParagraphParser < Parser
@@ -315,7 +329,7 @@ class ParagraphParser < Parser
     when :newline
       @p.add_text(' ')
     when '\\'
-      @markup.push_parser(NameParser.new(@markup))
+      @markup.push_parser(SlashParser.new(@markup))
     else
       # FIXME: this could be tagged text
       @p.add_text(token.value)
@@ -380,8 +394,7 @@ class IndentedElementParser < Parser
     what, extra = token.value
 
     case what
-    when :blank
-    when :newline
+    when :blank, :newline
       raise "Parse error #{token}"
     when "*"
       @markup.push_parser(HeaderParser.new(@markup))
@@ -557,6 +570,10 @@ class Markup
       raise "Trying to close element #{element}, found #{@elements} at #{token}"
     end
     @elements.pop
+  end
+
+  def current_element
+    @elements.last
   end
 
 end
