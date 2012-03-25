@@ -252,9 +252,8 @@ class DocumentParser < Parser
       end
     else
       p = @markup.open_element(:p)
-      # FIXME: this could be tagged text
-      p.add_text(token.value)
       @markup.push_parser(ParagraphParser.new(@markup, p))
+      @markup.current_parser.grok(token)
     end
   end
 end
