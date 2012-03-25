@@ -218,14 +218,14 @@ class Parser
     @markup = markup
   end
 
-  def expand_outdentation(outdentation, token, element)
-    if outdentation >= 2
+  def expand_outdentation(outdentation, token, element, amount=2)
+    if outdentation >= amount
       @markup.close_element(element, token)
       @markup.pop_parser
     end
     # Pass along any extra outdentation.
-    if outdentation > 2
-      new_outdent = Token.new([:outdent, outdentation - 2], token.line, 0, token.tokenizer)
+    if outdentation > amount
+      new_outdent = Token.new([:outdent, outdentation - amount], token.line, 0, token.tokenizer)
       @markup.current_parser.grok(new_outdent)
     end
   end
@@ -436,14 +436,11 @@ class VerbatimParser < Parser
       @extra_indentation += extra
       @beginning_of_line = true
     when :outdent
-      @extra_indentation -= extra
-      @beginning_of_line = true
-
-      # FIXME: write a test of nested verbatim. Probably need to
-      # expand outdentation here too.
-      if @extra_indentation == -3
-        @markup.close_element(@verbatim, token)
-        @markup.pop_parser
+      if extra > @extra_indentation
+        expand_outdentation(extra - @extra_indentation, token, @verbatim, 3)
+      else
+        @extra_indentation -= extra
+        @beginning_of_line = true
       end
     else
       @blanks.times { @verbatim.add_text("\n\n") }
