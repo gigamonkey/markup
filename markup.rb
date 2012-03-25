@@ -359,7 +359,6 @@ class ParagraphParser < Parser
     when '\\'
       @markup.push_parser(SlashParser.new(@markup))
     else
-      # FIXME: this could be tagged text
       @p.add_text(token.value)
     end
   end
