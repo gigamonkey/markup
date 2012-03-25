@@ -253,10 +253,51 @@ class DocumentParser < Parser
       end
     else
       p = @markup.open_element(:p)
+      # FIXME: this could be tagged text
       p.add_text(token.value)
       @markup.push_parser(ParagraphParser.new(@markup, p))
     end
   end
+end
+
+class NameParser < Parser
+
+  def initialize(markup)
+    super(markup)
+    @name = ''
+  end
+
+  def grok(token)
+    case token.value
+    when '{'
+      @markup.pop_parser
+      e = @markup.open_element(@name.to_sym)
+      @markup.push_parser(BraceDelimetedParser.new(@markup, e))
+    else
+      @name << token.value
+    end
+  end
+end
+
+class BraceDelimetedParser < Parser
+
+  def initialize(markup, element)
+    super(markup)
+    @element = element
+  end
+
+  def grok(token)
+    case token.value
+    when '}'
+      @markup.close_element(@element)
+      @markup.pop_parser
+    when '\\'
+      @markup.push_parser(NameParser.new(@markup))
+    else
+      @element.add_text(token.value)
+    end
+  end
+
 end
 
 class ParagraphParser < Parser
@@ -273,7 +314,10 @@ class ParagraphParser < Parser
       @markup.pop_parser
     when :newline
       @p.add_text(' ')
+    when '\\'
+      @markup.push_parser(NameParser.new(@markup))
     else
+      # FIXME: this could be tagged text
       @p.add_text(token.value)
     end
   end
@@ -353,13 +397,13 @@ class IndentedElementParser < Parser
     when :outdent
       expand_outdentation(extra, token, @element)
     else
+      # FIXME: this could be tagged text
       p = @markup.open_element(:p)
       p.add_text(token.value)
       @markup.push_parser(ParagraphParser.new(@markup, p))
     end
   end
 end
-
 
 class ListParser < Parser
 
