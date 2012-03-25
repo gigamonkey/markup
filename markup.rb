@@ -259,6 +259,9 @@ class DocumentParser < Parser
         v = @markup.open_element(:pre)
         @markup.push_parser(VerbatimParser.new(@markup, v, indentation - 3))
       end
+    when '['
+      @markup.push_parser(LinkdefParser.new(@markup))
+      @markup.push_parser(LinkParser.new(@markup))
     when '}'
       if @brace_is_eof
         @markup.close_element(@subdoc, token)
@@ -338,6 +341,8 @@ class BraceDelimetedParser < Parser
       @markup.pop_parser
     when '\\'
       @markup.push_parser(SlashParser.new(@markup))
+    when '['
+      @markup.push_parser(LinkParser.new(@markup))
     else
       @element.add_text(token.value)
     end
@@ -348,13 +353,78 @@ class SlashParser < Parser
 
   def grok(token)
     case token.value
-    when '\\', '{', '}', '*', '-', '#'
+    when '\\', '{', '}', '*', '-', '#', '['
       @markup.pop_parser
       @markup.current_element.add_text(token.value)
     else
       @markup.pop_parser
       @markup.push_parser(NameParser.new(@markup))
       @markup.current_parser.grok(token)
+    end
+  end
+end
+
+class LinkParser < Parser
+
+  def initialize(markup)
+    super(markup)
+    @link = @markup.open_element(:link)
+    @key = false
+  end
+
+  def grok(token)
+    case token.value
+    when '|'
+      @key = @markup.open_element(:key)
+    when ']'
+      @markup.pop_parser
+      if @key
+        @markup.close_element(@key, token)
+      end
+      @markup.close_element(@link, token)
+    else
+      if @key
+        @key.add_text(token.value)
+      else
+        @link.add_text(token.value)
+      end
+    end
+  end
+end
+
+class LinkdefParser < Parser
+
+  def initialize(markup)
+    super(markup)
+    @linkdef = @markup.open_element(:link_def)
+  end
+
+  def grok(token)
+    case token.value
+    when ' '
+    when '<'
+      @markup.push_parser(UrlParser.new(@markup))
+    when :blank
+      @markup.pop_parser
+      @markup.close_element(@linkdef)
+    end
+  end
+end
+
+class UrlParser < Parser
+
+  def initialize(markup)
+    super(markup)
+    @url = @markup.open_element(:url)
+  end
+
+  def grok(token)
+    case token.value
+    when '>'
+      @markup.pop_parser
+      @markup.close_element(@url)
+    else
+      @url.add_text(token.value)
     end
   end
 end
@@ -375,6 +445,8 @@ class ParagraphParser < Parser
       @p.add_text(' ')
     when '\\'
       @markup.push_parser(SlashParser.new(@markup))
+    when '['
+      @markup.push_parser(LinkParser.new(@markup))
     when '}'
       if @brace_is_eof
         @markup.close_element(@p, token)
@@ -624,13 +696,19 @@ class Markup
     @elements.last
   end
 
+  def dump_parse_state(token)
+    puts "At token: #{token}"
+    puts "elements: #{@elements}"
+    puts "parsers: #{@parsers}"
+  end
+
 end
 
 if __FILE__ == $0
 
   ARGV.each do |file|
     puts "\n\nFile: #{file}:::\n"
-    print JSON.dump(Markup.new.parse_file(file).to_a)
+    print JSON.dump(Markup.new(Set.new([:note])).parse_file(file).to_a)
     #File.open(file) { |f| puts Markup.new.tokenize(f).to_a }
   end
 
