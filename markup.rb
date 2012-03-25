@@ -10,6 +10,7 @@
 #
 
 require 'json'
+require 'set'
 
 class Token
 
@@ -311,7 +312,7 @@ class NameParser < Parser
       @markup.pop_parser
       tag = @name.to_sym
       e = @markup.open_element(tag)
-      if tag == :note
+      if @markup.subdocs.include?(tag)
         @markup.push_parser(DocumentParser.new(@markup, e))
       else
         @markup.push_parser(BraceDelimetedParser.new(@markup, e))
@@ -556,11 +557,14 @@ end
 
 class Markup
 
+  attr_reader :subdocs
+
   def initialize(tabwidth=8)
     @cleaner   = TextCleaner.new(tabwidth)
     @tokenizer = Tokenizer.new
     @elements  = []
     @parsers   = []
+    @subdocs   = Set.new([:note])
   end
 
   #
