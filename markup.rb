@@ -213,8 +213,9 @@ class Tokenizer
 end
 
 class Parser
-  def initialize(markup)
-    @markup = markup
+  def initialize(markup, brace_is_eof=false)
+    @markup       = markup
+    @brace_is_eof = brace_is_eof
   end
 
   def expand_outdentation(outdentation, token, element, amount=2)
@@ -233,6 +234,11 @@ end
 
 class DocumentParser < Parser
 
+  def initialize(markup, subdoc=false)
+    super(markup, subdoc)
+    @subdoc = subdoc
+  end
+
   def grok(token)
     what, extra = token.value
 
@@ -247,14 +253,19 @@ class DocumentParser < Parser
       indentation = extra
       case
       when indentation == 2
-        @markup.push_parser(BlockquoteOrListParser.new(@markup))
+        @markup.push_parser(BlockquoteOrListParser.new(@markup, @brace_is_eof))
       when indentation >= 3
         v = @markup.open_element(:pre)
         @markup.push_parser(VerbatimParser.new(@markup, v, indentation - 3))
       end
+    when '}'
+      if @brace_is_eof
+        @markup.close_element(@subdoc, token)
+        @markup.pop_parser
+      end
     else
       p = @markup.open_element(:p)
-      @markup.push_parser(ParagraphParser.new(@markup, p))
+      @markup.push_parser(ParagraphParser.new(@markup, p, @brace_is_eof))
       @markup.current_parser.grok(token)
     end
   end
@@ -298,9 +309,15 @@ class NameParser < Parser
     case token.value
     when '{'
       @markup.pop_parser
-      e = @markup.open_element(@name.to_sym)
-      @markup.push_parser(BraceDelimetedParser.new(@markup, e))
+      tag = @name.to_sym
+      e = @markup.open_element(tag)
+      if tag == :note
+        @markup.push_parser(DocumentParser.new(@markup, e))
+      else
+        @markup.push_parser(BraceDelimetedParser.new(@markup, e))
+      end
     else
+      # FIXME: should check that we only get legal name characters.
       @name << token.value
     end
   end
@@ -326,7 +343,6 @@ class BraceDelimetedParser < Parser
   end
 end
 
-
 class SlashParser < Parser
 
   def grok(token)
@@ -344,8 +360,8 @@ end
 
 class ParagraphParser < Parser
 
-  def initialize(markup, p)
-    super(markup)
+  def initialize(markup, p, brace_is_eof=false)
+    super(markup, brace_is_eof)
     @p = p
   end
 
@@ -358,6 +374,12 @@ class ParagraphParser < Parser
       @p.add_text(' ')
     when '\\'
       @markup.push_parser(SlashParser.new(@markup))
+    when '}'
+      if @brace_is_eof
+        @markup.close_element(@p, token)
+        @markup.pop_parser
+        @markup.current_parser.grok(token)
+      end
     else
       @p.add_text(token.value)
     end
@@ -366,8 +388,8 @@ end
 
 class HeaderParser < Parser
 
-  def initialize(markup)
-    super(markup)
+  def initialize(markup, brace_is_eof=false)
+    super(markup, brace_is_eof)
     @stars = 1
   end
 
@@ -378,7 +400,7 @@ class HeaderParser < Parser
     when " "
       h = @markup.open_element("h#{@stars}".to_sym)
       @markup.pop_parser
-      @markup.push_parser(ParagraphParser.new(@markup, h))
+      @markup.push_parser(ParagraphParser.new(@markup, h, @brace_is_eof))
     else
       raise "Bad token: #{token}"
     end
@@ -386,10 +408,6 @@ class HeaderParser < Parser
 end
 
 class BlockquoteOrListParser < Parser
-
-  def initialize(markup)
-    super(markup)
-  end
 
   def grok(token)
     tag, parserClass =
