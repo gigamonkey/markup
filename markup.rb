@@ -9,14 +9,18 @@
 # side.
 #
 
+require 'json'
+
 class Token
 
-  attr_reader :line, :column, :value
+  attr_reader :line, :column, :value, :tokenizer
+  attr_writer :tokenizer
 
-  def initialize(value, line, column)
-    @value  = value
-    @line   = line
-    @column = column
+  def initialize(value, line, column, tokenizer=nil)
+    @value     = value
+    @line      = line
+    @column    = column
+    @tokenizer = tokenizer
   end
 
   def text
@@ -145,11 +149,15 @@ end
 
 class Tokenizer
 
+  def initialize
+    @current_indentation = 0
+  end
+
   def tokens(input_tokens)
 
     newlines            = 0
     newline_position    = nil
-    current_indentation = 0
+    #current_indentation = 0
     leading_spaces      = 0
     previous_token      = nil
 
@@ -160,7 +168,7 @@ class Tokenizer
           newlines += 1
         else
           if newlines > 0
-            yield Token.new(newlines == 1 ? :newline : :blank, *newline_position)
+            yield Token.new(newlines == 1 ? :newline : :blank, *newline_position, self)
             newlines = 0
             leading_spaces = 0
           end
@@ -169,13 +177,14 @@ class Tokenizer
             if t == " "
               leading_spaces += 1
             else
-              if leading_spaces > current_indentation
-                yield Token.new([:indent, leading_spaces - current_indentation], t.line, 0)
-              elsif current_indentation > leading_spaces
-                yield Token.new([:outdent, current_indentation - leading_spaces], t.line, 0)
+              if leading_spaces > @current_indentation
+                yield Token.new([:indent, leading_spaces - @current_indentation], t.line, 0, self)
+              elsif @current_indentation > leading_spaces
+                yield Token.new([:outdent, @current_indentation - leading_spaces], t.line, 0, self)
               end
-              current_indentation = leading_spaces
+              @current_indentation = leading_spaces
               leading_spaces = false
+              t.tokenizer = self
               yield t
             end
           else
@@ -186,10 +195,10 @@ class Tokenizer
       end
       # Always yield a :blank at the end of file unless it was empty.
       if previous_token
-        yield Token.new(:blank, previous_token.line, previous_token.column)
+        yield Token.new(:blank, previous_token.line, previous_token.column, self)
 
-        if current_indentation > 0
-          yield Token.new([:outdent, current_indentation], previous_token.line, previous_token.column)
+        if @current_indentation > 0
+          yield Token.new([:outdent, @current_indentation], previous_token.line, previous_token.column, self)
         end
       end
 
@@ -197,6 +206,11 @@ class Tokenizer
       Enumerator.new(self, :tokens, input_tokens)
     end
   end
+
+  def add_indentation(n)
+    @current_indentation += n
+  end
+
 end
 
 class Parser
@@ -307,18 +321,33 @@ class BlockquoteParser < Parser
   end
 
   def grok(token)
-    case token.value
+    what, extra = token.value
+
+    case what
     when :blank
     when :newline
       raise "Parse error #{token}"
     when "*"
       @markup.push_parser(HeaderParser.new(@markup))
-    when [:indent, 2]
-      bq = @markup.open_element(:blockquote)
-      @markup.push_parser(BlockquoteParser.new(@markup, bq))
-    when [:outdent, 2]
-      @markup.close_element(@bq, token)
-      @markup.pop_parser
+    when :indent
+      indentation = extra
+      case
+      when indentation == 2
+        @markup.push_parser(BlockquoteOrListParser.new(@markup))
+      when indentation >= 3
+        v = @markup.open_element(:pre)
+        @markup.push_parser(VerbatimParser.new(@markup, v, indentation - 3))
+      end
+    when :outdent
+      outdentation = extra
+      if outdentation >= 2
+        @markup.close_element(@bq, token)
+        @markup.pop_parser
+      end
+      # Pass along any extra outdentation.
+      if outdentation > 2
+        @markup.current_parser.grok(Token.new([:outdent, outdentation - 2], token.line, 0, token.tokenizer))
+      end
     else
       p = @markup.open_element(:p)
       p.add_text(token.value)
@@ -327,33 +356,85 @@ class BlockquoteParser < Parser
   end
 end
 
+
 class ListParser < Parser
 
   def initialize(markup, list)
     super(markup)
     @list   = list
     @marker = nil
-    @item   = nil
   end
 
   def grok(token)
     # The first token we see is our list marker (either '#' or '-').
     if @marker.nil? then @marker = token.value end
 
-    case token.value
+    what, extra = token.value
+
+    case what
     when @marker
-      if not @item.nil? then @markup.close_element(@item, token) end
-      @item = @markup.open_element(:li)
       @markup.push_parser(TokenEater.new(@markup, ' ') do
                             @markup.pop_parser
-                            @markup.push_parser(ListParagraphParser.new(@markup))
+                            token.tokenizer.add_indentation(2)
+                            item = @markup.open_element(:li)
+                            @markup.push_parser(ListItemParser.new(@markup, item))
                           end)
-    when [:outdent, 2]
-      @markup.close_element(@item, token)
-      @markup.close_element(@list, token)
-      @markup.pop_parser
+    when :outdent
+      outdentation = extra
+      if outdentation >= 2
+        @markup.close_element(@list, token)
+        @markup.pop_parser
+      end
+      # Pass along any extra outdentation.
+      if outdentation > 2
+        @markup.current_parser.grok(Token.new([:outdent, outdentation - 2], token.line, 0))
+      end
     else
-      raise "Parse error: expected #{@marker} got #{token}"
+      raise "Parse error: expected #{@marker} or :outdent got #{token}"
+    end
+  end
+end
+
+
+class ListItemParser < Parser
+
+  def initialize(markup, item)
+    super(markup)
+    @item = item
+  end
+
+  def grok(token)
+    what, extra = token.value
+
+    case what
+    when :blank
+    when :newline
+      raise "Parse error #{token}"
+    when "*"
+      @markup.push_parser(HeaderParser.new(@markup))
+    when :indent
+      indentation = extra
+      case
+      when indentation == 2
+        @markup.push_parser(BlockquoteOrListParser.new(@markup))
+      when indentation >= 3
+        v = @markup.open_element(:pre)
+        @markup.push_parser(VerbatimParser.new(@markup, v, indentation - 3))
+      end
+    when :outdent
+      outdentation = extra
+      if outdentation >= 2
+        @markup.close_element(@item, token)
+        @markup.pop_parser
+      end
+      # Pass along any extra outdentation.
+      if outdentation > 2
+        @markup.current_parser.grok(Token.new([:outdent, outdentation - 2], token.line, 0, token.tokenizer))
+      end
+    else
+      p = @markup.open_element(:p)
+      p.add_text(token.value)
+      @markup.push_parser(ParagraphParser.new(@markup, p))
     end
   end
 end
@@ -371,45 +452,10 @@ class TokenEater < Parser
     when @value
       @block.call
     else
-      raise "Parse error expected <#{@value}> got #{token}"
+      raise "Parse error expected <#{@value}> got #{token.value}"
     end
   end
 end
-
-class ListParagraphParser < Parser
-
-  # Like a regular paragraph parser except that after the first
-  # newline we expect to see an [:indent, 2] token which we ignore.
-  # Thereafter the indentation will be set up properly. When we see an
-  # [:outdent, 2] it's time for another list item. If we get a larger
-  # :outdent then the list is closed.
-
-  def initialize(markup)
-    super(markup)
-    @p = markup.open_element(:p)
-    @saw_first_indent = false
-  end
-
-  def grok(token)
-    case token.value
-    when :blank
-      @markup.close_element(@p, token)
-      @markup.pop_parser
-    when :newline
-      if not @saw_first_indent
-        @markup.push_parser(TokenEater.new(markup, :indent) { @markup.pop_parser })
-      end
-      @markup.close_element(@p, token)
-      @markup.pop_parser
-    when :newline
-      @p.add_text(' ')
-    else
-      @p.add_text(token.value)
-    end
-  end
-end
-
-
 
 class VerbatimParser < Parser
 
@@ -518,8 +564,8 @@ if __FILE__ == $0
 
   ARGV.each do |file|
     puts "\n\nFile: #{file}:::\n"
-    #print Markup.new.parse_file(file).to_a
-    File.open(file) { |f| puts Markup.new.tokenize(f).to_a }
+    print JSON.dump(Markup.new.parse_file(file).to_a)
+    #File.open(file) { |f| puts Markup.new.tokenize(f).to_a }
   end
 
 end
