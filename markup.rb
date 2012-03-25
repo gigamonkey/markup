@@ -559,12 +559,12 @@ class Markup
 
   attr_reader :subdocs
 
-  def initialize(tabwidth=8)
+  def initialize(subdocs=Set.new, tabwidth=8)
+    @subdocs   = subdocs
     @cleaner   = TextCleaner.new(tabwidth)
     @tokenizer = Tokenizer.new
     @elements  = []
     @parsers   = []
-    @subdocs   = Set.new([:note])
   end
 
   #

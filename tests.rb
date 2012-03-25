@@ -203,10 +203,11 @@ class TestFiles < Test::Unit::TestCase
 
   def test_files
     Dir.glob("./tests/*.json") do |json|
-      dir    = File.dirname(json)
-      base   = File.basename(json, ".json")
-      expect = json_to_array(json)
-      got    = Markup.new.parse_file("#{dir}/#{base}.txt").to_a
+      dir     = File.dirname(json)
+      base    = File.basename(json, ".json")
+      expect  = json_to_array(json)
+      subdocs = Set.new([:note])
+      got     = Markup.new(subdocs).parse_file("#{dir}/#{base}.txt", ).to_a
 
       assert_equal expect, got, base
     end
