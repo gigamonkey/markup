@@ -221,10 +221,8 @@ class Parser
   end
 
   def expand_outdentation(outdentation, token, element, amount=2)
-    if outdentation >= amount
-      @markup.close_element(element, token)
-      @markup.pop_parser
-    end
+    @markup.close_element(element, token)
+    @markup.pop_parser
     # Pass along any extra outdentation.
     if outdentation > amount
       new_outdent = Token.new([:outdent, outdentation - amount], token.line, 0, token.tokenizer)
@@ -257,6 +255,15 @@ class DocumentParser < Parser
       when indentation == 2
         @markup.push_parser(BlockquoteOrListParser.new(@markup, @brace_is_eof))
       when indentation >= 3
+        v = @markup.open_element(:pre)
+        @markup.push_parser(VerbatimParser.new(@markup, v, indentation - 3))
+      end
+    when :outdent
+      outdentation = extra
+      case
+      when outdentation == 2
+        @markup.push_parser(BlockquoteOrListParser.new(@markup, @brace_is_eof))
+      when outdentation >= 3
         v = @markup.open_element(:pre)
         @markup.push_parser(VerbatimParser.new(@markup, v, indentation - 3))
       end
@@ -653,10 +660,12 @@ class VerbatimParser < Parser
       @extra_indentation += extra
       @beginning_of_line = true
     when :outdent
-      if extra > @extra_indentation
-        expand_outdentation(extra - @extra_indentation, token, @verbatim, 3)
+      outdent = extra
+
+      if outdent > @extra_indentation
+        expand_outdentation(outdent - @extra_indentation, token, @verbatim, 3)
       else
-        @extra_indentation -= extra
+        @extra_indentation -= outdent
         @beginning_of_line = true
       end
     else

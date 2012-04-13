@@ -206,10 +206,9 @@ class TestFiles < Test::Unit::TestCase
       dir     = File.dirname(json)
       base    = File.basename(json, ".json")
       expect  = json_to_array(json)
-      subdocs = Set.new([:note])
+      subdocs = Set.new([:note, :comment])
       got     = Markup.new(subdocs).parse_file("#{dir}/#{base}.txt", ).to_a
-
-      assert_equal expect, got, base
+      assert_equal expect, got, "Error in test file #{base}"
     end
   end
 
