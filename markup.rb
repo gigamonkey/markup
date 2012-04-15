@@ -157,10 +157,11 @@ class Tokenizer
 
   def tokens(input_tokens)
 
-    newlines            = 0
-    newline_position    = nil
-    leading_spaces      = 0
-    previous_token      = nil
+    newlines         = 0
+    newline_position = nil
+    leading_spaces   = 0
+    previous_token   = nil
+    in_verbatim      = false
 
     if block_given?
       input_tokens.each do |t|
@@ -169,21 +170,58 @@ class Tokenizer
           newlines += 1
         else
           if newlines > 0
-            yield Token.new(newlines == 1 ? :newline : :blank, *newline_position, self)
+            if newlines == 1
+              yield Token.new(:newline, *newline_position, self)
+            else
+              (newlines - 1).times { yield Token.new(:blank, *newline_position, self) }
+            end
             newlines = 0
             leading_spaces = 0
           end
 
-          if leading_spaces
+          if leading_spaces # Note that 0 is a true value.
             if t == " "
               leading_spaces += 1
             else
-              if leading_spaces > @current_indentation
-                yield Token.new([:indent, leading_spaces - @current_indentation], t.line, 0, self)
-              elsif @current_indentation > leading_spaces
-                yield Token.new([:outdent, @current_indentation - leading_spaces], t.line, 0, self)
+
+              # First close any open indented sections.
+              if leading_spaces < @current_indentation
+                if in_verbatim
+                  yield Token.new(:close_verbatim, t.line, 0, self)
+                  in_verbatim = false
+                  @current_indentation -= 3
+                end
+
+                while leading_spaces < @current_indentation
+                  yield Token.new(:close_blockquote, t.line, 0, self)
+                    @current_indentation -= 2
+                end
               end
-              @current_indentation = leading_spaces
+
+              if leading_spaces > @current_indentation
+                spaces = leading_spaces - @current_indentation
+                if in_verbatim
+                  spaces.times { yield Token.new(" ", t.line, 0, self) }
+                else
+                  if spaces == 1 # -2 + 3 = 1
+                    yield Token.new(:close_blockquote, t.line, 0, self)
+                    yield Token.new(:open_verbatim, t.line, 0, self)
+                    @current_indentation += 1
+                    in_verbatim = true;
+
+                  elsif spaces == 2
+                    yield Token.new(:open_blockquote, t.line, 0, self)
+                    @current_indentation += 2
+
+                  elsif spaces >= 3
+                    yield Token.new(:open_verbatim, t.line, 0, self)
+                    (spaces - 3).times { yield Token.new(" ", t.line, 0, self) }
+                    @current_indentation += 3
+                    in_verbatim = true
+                  end
+                end
+              end
+
               leading_spaces = false
               t.tokenizer = self
               yield t
@@ -194,12 +232,22 @@ class Tokenizer
         end
         previous_token = t
       end
+
       # Always yield a :blank at the end of file unless it was empty.
       if previous_token
         yield Token.new(:blank, previous_token.line, previous_token.column, self)
 
         if @current_indentation > 0
-          yield Token.new([:outdent, @current_indentation], previous_token.line, previous_token.column, self)
+          if in_verbatim
+            yield Token.new(:close_verbatim, previous_token.line, previous_token.column, self)
+            in_verbatim = false
+            @current_indentation -= 3
+          end
+
+          while @current_indentation > 0
+            yield Token.new(:close_blockquote, previous_token.line, 0, self)
+            @current_indentation -= 2
+          end
         end
       end
 
@@ -219,17 +267,6 @@ class Parser
     @markup       = markup
     @brace_is_eof = brace_is_eof
   end
-
-  def expand_outdentation(outdentation, token, element, amount=2)
-    @markup.close_element(element, token)
-    @markup.pop_parser
-    # Pass along any extra outdentation.
-    if outdentation > amount
-      new_outdent = Token.new([:outdent, outdentation - amount], token.line, 0, token.tokenizer)
-      @markup.current_parser.grok(new_outdent)
-    end
-  end
-
 end
 
 class DocumentParser < Parser
@@ -244,29 +281,16 @@ class DocumentParser < Parser
 
     case what
     when :blank, :newline
-      raise "Parse error #{token}"
+      #raise "Parse error #{token}"
     when "*"
       @markup.push_parser(HeaderParser.new(@markup))
     when '-'
       @markup.push_parser(PossibleModelineParser.new(@markup, token))
-    when :indent
-      indentation = extra
-      case
-      when indentation == 2
-        @markup.push_parser(BlockquoteOrListParser.new(@markup, @brace_is_eof))
-      when indentation >= 3
-        v = @markup.open_element(:pre)
-        @markup.push_parser(VerbatimParser.new(@markup, v, indentation - 3))
-      end
-    when :outdent
-      outdentation = extra
-      case
-      when outdentation == 2
-        @markup.push_parser(BlockquoteOrListParser.new(@markup, @brace_is_eof))
-      when outdentation >= 3
-        v = @markup.open_element(:pre)
-        @markup.push_parser(VerbatimParser.new(@markup, v, indentation - 3))
-      end
+    when :open_blockquote
+      @markup.push_parser(BlockquoteOrListParser.new(@markup, @brace_is_eof))
+    when :open_verbatim
+      v = @markup.open_element(:pre)
+      @markup.push_parser(VerbatimParser.new(@markup, v))
     when '['
       @markup.push_parser(AmbiguousLinkParser.new(@markup))
       @markup.push_parser(LinkParser.new(@markup))
@@ -361,7 +385,7 @@ class SlashParser < Parser
 
   def grok(token)
     case token.value
-    when '\\', '{', '}', '*', '-', '#', '['
+    when '\\', '{', '}', '*', '-', '#', '[', '<', '|'
       @markup.pop_parser
       @markup.current_element.add_text(token.value)
     else
@@ -558,24 +582,19 @@ class IndentedElementParser < Parser
   end
 
   def grok(token)
-    what, extra = token.value
-
-    case what
+    case token.value
     when :blank, :newline
       raise "Parse error #{token}"
     when "*"
       @markup.push_parser(HeaderParser.new(@markup))
-    when :indent
-      indentation = extra
-      case
-      when indentation == 2
-        @markup.push_parser(BlockquoteOrListParser.new(@markup))
-      when indentation >= 3
-        v = @markup.open_element(:pre)
-        @markup.push_parser(VerbatimParser.new(@markup, v, indentation - 3))
-      end
-    when :outdent
-      expand_outdentation(extra, token, @element)
+    when :open_blockquote
+      @markup.push_parser(BlockquoteOrListParser.new(@markup, @brace_is_eof))
+    when :open_verbatim
+      v = @markup.open_element(:pre)
+      @markup.push_parser(VerbatimParser.new(@markup, v))
+    when :close_blockquote
+      @markup.close_element(@element, token)
+      @markup.pop_parser
     else
       p = @markup.open_element(:p)
       @markup.push_parser(ParagraphParser.new(@markup, p))
@@ -605,15 +624,14 @@ class ListParser < Parser
     # The first token we see is our list marker (either '#' or '-').
     if @marker.nil? then @marker = token.value end
 
-    what, extra = token.value
-
-    case what
+    case token.value
     when @marker
       @markup.push_parser(space_eater(token))
-    when :outdent
-      expand_outdentation(extra, token, @list)
+    when :close_blockquote
+      @markup.close_element(@list, token)
+      @markup.pop_parser
     else
-      raise "Parse error: expected #{@marker} or :outdent got #{token}"
+      raise "Parse error: expected #{@marker} or :close_blockquote got #{token}"
     end
   end
 end
@@ -638,42 +656,25 @@ end
 
 class VerbatimParser < Parser
 
-  def initialize(markup, verbatim, initial_indentation=0)
+  def initialize(markup, verbatim)
     super(markup)
-    @verbatim          = verbatim
-    @extra_indentation = initial_indentation
-    @blanks            = 0
-    @beginning_of_line = true
+    @verbatim = verbatim
+    @blanks   = 0
   end
 
   def grok(token)
-    what, extra = token.value
-
-    case what
+    case token.value
     when :blank
       @blanks += 1
-      @beginning_of_line = true
     when :newline
       @verbatim.add_text("\n")
-      @beginning_of_line = true
-    when :indent
-      @extra_indentation += extra
-      @beginning_of_line = true
-    when :outdent
-      outdent = extra
-
-      if outdent > @extra_indentation
-        expand_outdentation(outdent - @extra_indentation, token, @verbatim, 3)
-      else
-        @extra_indentation -= outdent
-        @beginning_of_line = true
-      end
+    when :close_verbatim
+      @markup.close_element(@verbatim, token)
+      @markup.pop_parser
     else
-      @blanks.times { @verbatim.add_text("\n\n") }
-      @blanks = 0
-      if @beginning_of_line
-        @extra_indentation.times { @verbatim.add_text(" ") }
-        @beginning_of_line = false
+      if @blanks > 0
+        (@blanks + 1).times { @verbatim.add_text("\n") }
+        @blanks = 0
       end
       @verbatim.add_text(token.value)
     end
@@ -712,13 +713,7 @@ class Markup
   def parse(text)
     push_parser(DocumentParser.new(self))
     body = open_element(:body)
-    tokenize(text).each do |tok|
-      begin
-        current_parser.grok(tok)
-      rescue
-        puts "Problem grokking token #{tok}"
-      end
-    end
+    tokenize(text).each { |tok| current_parser.grok(tok) }
     close_element(body)
   end
 
