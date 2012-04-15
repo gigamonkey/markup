@@ -271,15 +271,14 @@ end
 
 class DocumentParser < Parser
 
-  def initialize(markup, subdoc=false)
+  def initialize(markup, subdoc=false, section=false)
     super(markup, subdoc)
     @subdoc = subdoc
+    @section = section
   end
 
   def grok(token)
-    what, extra = token.value
-
-    case what
+    case token.value
     when :blank, :newline
       #raise "Parse error #{token}"
     when "*"
@@ -299,6 +298,17 @@ class DocumentParser < Parser
         @markup.close_element(@subdoc, token)
         @markup.pop_parser
       end
+    when '#'
+      if not @section
+        # This is the top level document parser so this may be the
+        # beginning of a section.
+        @markup.push_parser(SectionStartParser.new(@markup, token))
+      else
+        # This is a nested section parser so this may be the end of
+        # the section.
+        @markup.push_parser(SectionEndParser.new(@markup, token, @subdoc))
+      end
+
     else
       p = @markup.open_element(:p)
       @markup.push_parser(ParagraphParser.new(@markup, p, @brace_is_eof))
@@ -334,6 +344,49 @@ class PossibleModelineParser < Parser
   end
 end
 
+class SectionStartParser < Parser
+
+  def initialize(markup, token)
+    super(markup)
+    @tokens = [ token ]
+  end
+
+  def grok(token)
+    if @tokens.length == 1 and token.value == '#'
+      @tokens << token
+    elsif @tokens.length == 2 and token.value == ' '
+      @markup.pop_parser
+      @markup.push_parser(SectionNameParser.new(@markup))
+    else
+      raise "Parser error: #{token}"
+    end
+  end
+end
+
+class SectionEndParser < Parser
+
+  def initialize(markup, token, section)
+    super(markup)
+    @tokens  = [ token ]
+    @section = section
+  end
+
+  def grok(token)
+    if @tokens.length == 1 and token.value == '#'
+      @tokens << token
+    elsif @tokens.length == 2 and token.value == '.'
+      @tokens << token
+    elsif @tokens.length == 3 and token.value == :blank
+      @markup.pop_parser # this one
+      @markup.pop_parser # document parser
+      @markup.close_element(@section)
+    else
+      raise "Parser error: #{token}"
+    end
+  end
+end
+
+
 class NameParser < Parser
 
   def initialize(markup)
@@ -358,6 +411,28 @@ class NameParser < Parser
     end
   end
 end
+
+class SectionNameParser < Parser
+
+  def initialize(markup)
+    super(markup)
+    @name = ''
+  end
+
+  def grok(token)
+    case token.value
+    when :blank
+      @markup.pop_parser
+      tag = @name.to_sym
+      e = @markup.open_element(tag)
+      @markup.push_parser(DocumentParser.new(@markup, e, true))
+    else
+      # FIXME: should check that we only get legal name characters.
+      @name << token.value
+    end
+  end
+end
+
 
 class BraceDelimetedParser < Parser
 
