@@ -298,6 +298,10 @@ class DocumentParser < Parser
         @markup.close_element(@subdoc, token)
         @markup.pop_parser
       end
+    when '§'
+      s = @markup.open_element(:section)
+      @markup.push_parser(ParagraphParser.new(@markup, s, @brace_is_eof))
+      @markup.current_parser.grok(token)
     when '#'
       if not @section
         # This is the top level document parser so this may be the
