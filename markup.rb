@@ -67,6 +67,9 @@ class Element
 
   def rstrip!()
     @children[-1].rstrip!
+    if @children[-1] == ''
+      @children.pop
+    end
   end
 
   def add_child(child)
