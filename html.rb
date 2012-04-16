@@ -11,7 +11,7 @@ class Renderer
                          :p,
                          :blockquote,
                          :pre,
-                         :ul, :ol, :li
+                         :ul, :ol, :li,
                          :dl, :dt, :dd
                        ]
   }
