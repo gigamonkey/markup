@@ -5,6 +5,14 @@ require './markup'
 
 class Renderer
 
+  @@standard_options = {
+    :block_elements => [ :h1, :p, :blockquote, :pre ]
+  }
+
+  def initialize(options=nil)
+    @options = options || @@standard_options
+  end
+
   def escape(s)
     s = s.gsub(/&/, "&amp;")
     s = s.gsub(/</, "&lt;")
@@ -16,11 +24,28 @@ class Renderer
       print escape(markup)
     else
       tag, *children = markup
-      print "<#{tag}>"
+      open_tag(tag)
       children.each { |m| render(m) }
-      print "</#{tag}>"
+      close_tag(tag)
     end
   end
+
+  def open_tag(tag)
+    if @options[:block_elements].include?(tag)
+      print "\n"
+    end
+    print "<#{tag}>"
+  end
+
+  def close_tag(tag)
+    print "</#{tag}>"
+    if @options[:block_elements].include?(tag)
+      print "\n"
+    end
+  end
+
+
+
 end
 
 if __FILE__ == $0
