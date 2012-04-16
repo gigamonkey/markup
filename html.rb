@@ -6,7 +6,14 @@ require './markup'
 class Renderer
 
   @@standard_options = {
-    :block_elements => [ :h1, :p, :blockquote, :pre ]
+    :block_elements => [ :body,
+                         :h1, :h2, :h3, :h4, :h5, :h6,
+                         :p,
+                         :blockquote,
+                         :pre,
+                         :ul, :ol, :li
+                         :dl, :dt, :dd
+                       ]
   }
 
   def initialize(options=nil)
