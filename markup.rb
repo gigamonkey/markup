@@ -65,6 +65,10 @@ class Element
     end
   end
 
+  def rstrip!()
+    @children[-1].rstrip!
+  end
+
   def add_child(child)
     @children.push(child)
   end
@@ -464,7 +468,7 @@ class SlashParser < Parser
 
   def grok(token)
     case token.value
-    when '\\', '{', '}', '*', '-', '#', '[', '<', '|'
+    when '\\', '{', '}', '*', '-', '#', '[', '<', '|', '%'
       @markup.pop_parser
       @markup.current_element.add_text(token.value)
     else
@@ -641,6 +645,8 @@ class BlockquoteOrListParser < Parser
         [:ol, ListParser]
       when '-'
         [:ul, ListParser]
+      when '%'
+        [:dl, DefinitionListParser]
       else
         [:blockquote, IndentedElementParser]
       end
@@ -711,6 +717,96 @@ class ListParser < Parser
       @markup.pop_parser
     else
       raise "Parse error: expected #{@marker} or :close_blockquote got #{token}"
+    end
+  end
+end
+
+class DefinitionListParser < Parser
+
+  def initialize(markup, element)
+    super(markup)
+    @list = element
+  end
+
+  def space_eater()
+    TokenEater.new(@markup, ' ') do
+      @markup.pop_parser
+      @markup.push_parser(DefinitionTermParser.new(@markup))
+    end
+  end
+
+  def grok(token)
+    case token.value
+    when '%'
+      @markup.push_parser(space_eater)
+    when :close_blockquote
+      @markup.close_element(@list, token)
+      @markup.pop_parser
+    else
+      raise "Parse error: expected #{@marker} or :close_blockquote got #{token}"
+    end
+  end
+end
+
+class DefinitionTermParser < Parser
+
+  def initialize(markup)
+    super(markup)
+    @element     = @markup.open_element(:dt)
+    @after_brace = false
+  end
+
+  def grok(token)
+    case token.value
+    when '%'
+      @after_brace = true
+    when :newline
+      if @after_brace
+        @element.rstrip!
+        @markup.close_element(@element, token)
+        @markup.pop_parser
+        @markup.push_parser(DefinitionDefinitionParser.new(@markup))
+      else
+        raise "Parse error. Got newline at #{token} without preceding '%'"
+      end
+    when '\\'
+      @markup.push_parser(SlashParser.new(@markup))
+    when '['
+      @markup.push_parser(LinkParser.new(@markup))
+    else
+      @element.add_text(token.value)
+    end
+  end
+end
+
+class DefinitionDefinitionParser < Parser
+
+  def initialize(markup)
+    super(markup)
+    @element = @markup.open_element(:dd)
+  end
+
+  def grok(token)
+    case token.value
+    when :blank, :newline
+      raise "Parse error #{token}"
+    when :open_blockquote
+      @markup.push_parser(BlockquoteOrListParser.new(@markup, @brace_is_eof))
+    when :open_verbatim
+      v = @markup.open_element(:pre)
+      @markup.push_parser(VerbatimParser.new(@markup, v))
+    when :close_blockquote
+      @markup.close_element(@element, token)
+      @markup.pop_parser
+      @markup.current_parser.grok(token) # Pass along to DL parser
+    when '%'
+      @markup.close_element(@element, token)
+      @markup.pop_parser
+      @markup.current_parser.grok(token)
+    else
+      p = @markup.open_element(:p)
+      @markup.push_parser(ParagraphParser.new(@markup, p))
+      @markup.current_parser.grok(token)
     end
   end
 end
