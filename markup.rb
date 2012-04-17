@@ -94,7 +94,11 @@ end
 # TextCleaner is responsible for converting tabs to spaces and
 # removing trailing whitespace from lines. The TextCleaner#clean
 # method iterates over tokens representing the characters in the text
-# with some of them removed or replaced by other characters.
+# with some of them removed or replaced by other characters. The
+# tokens are marked with the actual line and column they came from in
+# the file. (This does mean that, for instance, when a tab character
+# is converted to spaces, all the space tokens have the same line and
+# column values.)
 #
 class TextCleaner
 
@@ -156,6 +160,14 @@ class TextCleaner
   end
 end
 
+#
+# A Tokenizer takes the tokens coming out of a TextCleaner and
+# converts them to slightly higher-level semantic tokens. A single
+# newline at the end of a line becomes a :newline token; multiple
+# newlines are converted to :blank tokens. And we track changes of
+# indentation here, emitting :open_blockquote, :close_blockquote,
+# :open_verbatim, and :close_verbatim tokens as appropriate.
+#
 class Tokenizer
 
   def initialize
@@ -287,7 +299,7 @@ class DocumentParser < Parser
   def grok(token)
     case token.value
     when :blank, :newline
-      #raise "Parse error #{token}"
+      # ignore
     when "*"
       @markup.push_parser(HeaderParser.new(@markup))
     when '-'
@@ -389,7 +401,7 @@ class SectionEndParser < Parser
       @tokens << token
     elsif @tokens.length == 3 and token.value == :blank
       @markup.pop_parser # this one
-      @markup.pop_parser # document parser
+      @markup.pop_parser # section's document parser
       @markup.close_element(@section)
     else
       raise "Parser error: #{token}"
@@ -519,6 +531,10 @@ class LinkParser < Parser
 end
 
 
+#
+# Parse something that could either be a link at the start of a
+# paragraph or a linkdef.
+#
 class AmbiguousLinkParser < Parser
 
   def initialize(markup)
@@ -533,7 +549,7 @@ class AmbiguousLinkParser < Parser
     elsif @tokens.length == 1 and token.value == '<'
       @element.tag = :link_def
       @markup.pop_parser # ourself
-      @markup.push_parser(LinkdefParser.new(@markup, false))
+      @markup.push_parser(LinkdefParser.new(@markup))
       @markup.current_parser.grok(token)
     else
       @element.tag = :p
@@ -545,17 +561,11 @@ class AmbiguousLinkParser < Parser
   end
 end
 
-
-
 class LinkdefParser < Parser
 
-  def initialize(markup, open_element=true)
+  def initialize(markup)
     super(markup)
-    if open_element
-      @linkdef = @markup.open_element(:link_def)
-    else
-      @linkdef = @markup.current_element
-    end
+    @linkdef = @markup.current_element
   end
 
   def grok(token)
@@ -654,8 +664,7 @@ class BlockquoteOrListParser < Parser
         [:blockquote, IndentedElementParser]
       end
 
-    element = @markup.open_element(tag)
-    parser  = parserClass.new(@markup, element)
+    parser = parserClass.new(@markup, @markup.open_element(tag))
     @markup.pop_parser
     @markup.push_parser(parser)
     parser.grok(token)
