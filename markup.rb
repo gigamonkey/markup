@@ -57,6 +57,18 @@ class Element
     @children.each(&block)
   end
 
+  def render(renderer)
+    renderer.open_element(@tag)
+    @children.each do |child|
+      if child.is_a?(String)
+        renderer.render_text(child)
+      else
+        child.render(renderer)
+      end
+    end
+    renderer.close_element(@tag)
+  end
+
   def add_text(text)
     if @children[-1].is_a?(String)
       @children[-1] << text
@@ -1036,6 +1048,20 @@ class Markup
     puts "elements: #{@elements}"
     puts "parsers: #{@parsers}"
   end
+
+end
+
+
+#
+# Base class for renderers. (See html.rb for a simple example.)
+#
+class Renderer
+
+  def open_element(tag) end
+
+  def close_element(tag) end
+
+  def render_text(text) end
 
 end
 
