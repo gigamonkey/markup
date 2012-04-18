@@ -1,6 +1,6 @@
-[N.B. This is a work in progress of a new implementation. Not yet
-ready for use. Oh, and this is the first Ruby code I've ever written
-so if it looks stupid, that might be why.]
+[This is a work in progress of a new implementation. It getting close
+to being ready for use. Oh, and this is the first Ruby code I've ever
+written so if it looks stupid, that might be why. Comments welcome.]
 
 Markup is a text markup language primarily useful for prose documents
 such as books and articles. It is designed to be editable in a plain
@@ -10,9 +10,10 @@ The grammar of a Markup file is defined in terms of a mapping to an
 abstract syntax tree which can then be rendered into a number of
 formats, e.g. HTML, PDF, TeX, RTF, etc.
 
-This project will contain implementations of Markup processors in
-various languages. See also [1] for a Common Lisp implementation that
-evolved out of the one I used while working on my two books, Practical
-Common Lisp and Coders at Work, both of which were written in Markup.
+The full specificiation of Markup is in markup-spec.txt (which is
+itself written in Markup). See also [1] for a Common Lisp
+implementation that evolved out of the one I used while working on my
+two books, Practical Common Lisp and Coders at Work, both of which
+were written in Markup.
 
 [1] https://github.com/gigamonkey/monkeylib-markup

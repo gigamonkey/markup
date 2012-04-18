@@ -88,16 +88,18 @@ Verbatim sections are tagged with \code{pre}.
 *** Lists
 
 Lists are demarcated by two spaces of indentation followed by a list
-marker, either ‘\code{#}’ for an ordered (i.e. numbered) list or
-‘\code{-}’ for an unordered (i.e. bulleted) list. An ordered list is
-tagged with \code{ol} and an unordered list with \code{ul}.
+marker, either ‘\code{#}’ for an ordered (i.e. numbered) list,
+‘\code{-}’ for an unordered (i.e. bulleted) list, or ‘\code{%}’ for a
+definition list. An ordered list is tagged with \code{ol}, an
+unordered list with \code{ul}, and a definition list with \code{dl}.
 
 The list marker must be followed by a space and then the text of the
-first list item. List items are tagged with \code{li} and can contain
-multiple paragraphs, the contents of which are indented to line up
-under first character of the beginning of the list item. Subsequent
-items are marked with another list marker in the same column as the
-original list marker and another space. For example:
+first list item. For ordered and unordered List items are tagged with
+\code{li} and can contain multiple paragraphs, the contents of which
+are indented to line up under first character of the beginning of the
+list item. Subsequent items are marked with another list marker in the
+same column as the original list marker and another space. For
+example:
 
    This is a regular paragraph.
 
@@ -135,6 +137,31 @@ Could be rendered in HTML as:
 
    <p>This is another paragraph.</p>
 
+For definition lists, the term (tagged with \code{dt}) must go on one
+line and is ended with another ‘\code{%}’. The definition (tagged with
+\code{dd}) starts on the next line and can consist of multiple
+paragraphs. For example this markup:
+
+   % frob %
+   Abbreviated form of frobnicate.
+
+   % frobnicate %
+   To manipulate or adjust, to tweak.
+
+Could be rendered in HTML as:
+
+   <dl>
+     <dt>frob</dt>
+     <dd>
+       <p>Abbreviated form of frobnicate.</p>
+     </dd>
+
+     <dt>frobnicate</dt>
+     <dd>
+       <p>To manipulate or adjust, to tweak.</p>
+     </dd>
+   </dl>
+
 *** Links
 
 A Markup processor can optionally support a few bits of syntax to make
@@ -159,7 +186,7 @@ when parsing a given document.
 
 *** Tagged markup
 
-For all other markup, Markup uses the TeX-like notation
+For most other markup, Markup uses the TeX-like notation
 \code{\\\i{tagname}\{\i{stuff}\}}. Tag names can consist of letters,
 numbers, ‘\code{-}’, ‘\code{.}’, and ‘\code{+}’. Tagged markup can
 nest so you can have:
@@ -202,6 +229,29 @@ A Markup processor will need to provide some more or less convenient
 way to specify that certain tag names should be parsed as
 sub-documents rather than character markup.
 
+*** Tagged sections
+
+Another way to tag a section of a document is with a line like:
+
+   ## foo
+
+followed by any elements that are legal at the top level of a
+document and finaly closed by:
+
+   ##.
+
+This will create a subdocument element with the tag \code{foo} and
+children of whatever paragraphs are between the opening and closing
+markers. This is sometimes more aesthetic than the equivalent:
+
+   \foo{
+
+   <stuff here>
+
+   }
+
+and doesn’t require telling the parser that \code{foo} is a
+subdocument tag.
 
 *** Escapes
 
@@ -260,7 +310,3 @@ maps to (indentation for clarity):
      <h2>Header 2</h2>
      <p>Regular paragraph. With <i>italic</i> text.</p>
    </body>
-
-
-
-   
