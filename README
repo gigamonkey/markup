@@ -4,7 +4,7 @@ written so if it looks stupid, that might be why. Comments welcome.]
 
 Markup is a text markup language primarily useful for prose documents
 such as books and articles. It is designed to be editable in a plain
-text editor and to allow for arbitrary logical markup.
+text editor and to allow for arbitrary semantic markup.
 
 The grammar of a Markup file is defined in terms of a mapping to an
 abstract syntax tree which can then be rendered into a number of
