@@ -666,7 +666,7 @@ class TokenEater < Parser
     when @value
       @block.call
     else
-      raise "Parse error expected <#{@value}> got #{token.value}"
+      raise "Parse error expected <#{@value}> got #{token.value} at #{token.line}:#{token.column}"
     end
   end
 end
