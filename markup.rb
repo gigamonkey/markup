@@ -162,11 +162,15 @@ end
 
 #
 # A Tokenizer takes the tokens coming out of a TextCleaner and
-# converts them to slightly higher-level semantic tokens. A single
-# newline at the end of a line becomes a :newline token; multiple
-# newlines are converted to :blank tokens. And we track changes of
-# indentation here, emitting :open_blockquote, :close_blockquote,
-# :open_verbatim, and :close_verbatim tokens as appropriate.
+# converts them to slightly higher-level semantic tokens. For
+# instance, a single newline at the end of a line becomes a :newline
+# token; multiple newlines are converted to :blank tokens. And we
+# track changes of indentation here, emitting :open_blockquote,
+# :close_blockquote, :open_verbatim, and :close_verbatim tokens as
+# appropriate and stripping leading spaces so the parsers don't have
+# to deal with it. (After an :open_verbatim, spaces beyond the initial
+# indentation *are* passed along so they can be included in the
+# verbatim element.)
 #
 class Tokenizer
 
@@ -275,12 +279,18 @@ class Tokenizer
     end
   end
 
+  # Kludge for lists which are initially indented and then have their
+  # contents indented two more spaces to line up with the text
+  # starting after the list marker.
   def add_indentation(n)
     @current_indentation += n
   end
 
 end
 
+#
+# Base class for all parsers.
+#
 class Parser
   def initialize(markup, brace_is_eof=false)
     @markup       = markup
@@ -288,6 +298,10 @@ class Parser
   end
 end
 
+#
+# Parse the top-level document as well as inlined brace-delimited
+# subdocuments and named sections.
+#
 class DocumentParser < Parser
 
   def initialize(markup, subdoc=false, section=false)
@@ -340,6 +354,314 @@ class DocumentParser < Parser
   end
 end
 
+#
+# Parse a single paragraph.
+#
+class ParagraphParser < Parser
+
+  def initialize(markup, p, brace_is_eof=false)
+    super(markup, brace_is_eof)
+    @p = p
+  end
+
+  def grok(token)
+    case token.value
+    when :blank
+      @markup.close_element(@p, token)
+      @markup.pop_parser
+    when :newline
+      @p.add_text(' ')
+    when '\\'
+      @markup.push_parser(SlashParser.new(@markup))
+    when '['
+      @markup.push_parser(LinkParser.new(@markup))
+    when '}'
+      if @brace_is_eof
+        @markup.close_element(@p, token)
+        @markup.pop_parser
+        @markup.current_parser.grok(token)
+      end
+    else
+      @p.add_text(token.value)
+    end
+  end
+end
+
+#
+# Parse a header whose level is determined by the number of '*'s.
+#
+class HeaderParser < Parser
+
+  def initialize(markup, brace_is_eof=false)
+    super(markup, brace_is_eof)
+    @stars = 1
+  end
+
+  def grok(token)
+    case token.value
+    when "*"
+      @stars += 1
+    when " "
+      h = @markup.open_element("h#{@stars}".to_sym)
+      @markup.pop_parser
+      @markup.push_parser(ParagraphParser.new(@markup, h, @brace_is_eof))
+    else
+      raise "Bad token: #{token}"
+    end
+  end
+end
+
+#
+# Parse a section indented two spaces relative to its parent. Either a
+# blockquote or a list of some kind.
+#
+class BlockquoteOrListParser < Parser
+
+  def grok(token)
+    tag, parserClass =
+      case token.value
+      when '#'
+        [:ol, ListParser]
+      when '-'
+        [:ul, ListParser]
+      when '%'
+        [:dl, DefinitionListParser]
+      else
+        [:blockquote, IndentedElementParser]
+      end
+
+    parser = parserClass.new(@markup, @markup.open_element(tag))
+    @markup.pop_parser
+    @markup.push_parser(parser)
+    parser.grok(token)
+  end
+end
+
+#
+# Parse a set of paragraphs that are indented a fixed amount. Either a
+# blockquote or a list item. Can contain regular paragraphs, headers,
+# as well as nested blockquotes, lists, and verbatim sections.
+#
+class IndentedElementParser < Parser
+
+  def initialize(markup, element)
+    super(markup)
+    @element = element
+  end
+
+  def grok(token)
+    case token.value
+    when :blank, :newline
+      raise "Parse error #{token}"
+    when "*"
+      @markup.push_parser(HeaderParser.new(@markup))
+    when :open_blockquote
+      @markup.push_parser(BlockquoteOrListParser.new(@markup, @brace_is_eof))
+    when :open_verbatim
+      v = @markup.open_element(:pre)
+      @markup.push_parser(VerbatimParser.new(@markup, v))
+    when :close_blockquote
+      @markup.close_element(@element, token)
+      @markup.pop_parser
+    else
+      p = @markup.open_element(:p)
+      @markup.push_parser(ParagraphParser.new(@markup, p))
+      @markup.current_parser.grok(token)
+    end
+  end
+end
+
+#
+# Parse a verbatim section. In a verbatim section no escaping is
+# necessary and no other markup is allowed.
+#
+class VerbatimParser < Parser
+
+  def initialize(markup, verbatim)
+    super(markup)
+    @verbatim = verbatim
+    @blanks   = 0
+  end
+
+  def grok(token)
+    case token.value
+    when :blank
+      @blanks += 1
+    when :newline
+      @verbatim.add_text("\n")
+    when :close_verbatim
+      @markup.close_element(@verbatim, token)
+      @markup.pop_parser
+    else
+      if @blanks > 0
+        (@blanks + 1).times { @verbatim.add_text("\n") }
+        @blanks = 0
+      end
+      @verbatim.add_text(token.value)
+    end
+  end
+end
+
+#
+# Parse a :ol or :ul list. What kind of list depends on the first
+# token we see.
+#
+class ListParser < Parser
+
+  def initialize(markup, list)
+    super(markup)
+    @list   = list
+    @marker = nil
+  end
+
+  def space_eater(token)
+    TokenEater.new(@markup, ' ') do
+      @markup.pop_parser
+      token.tokenizer.add_indentation(2)
+      item = @markup.open_element(:li)
+      @markup.push_parser(IndentedElementParser.new(@markup, item))
+    end
+  end
+
+  def grok(token)
+    # The first token we see is our list marker (either '#' or '-').
+    if @marker.nil? then @marker = token.value end
+
+    case token.value
+    when @marker
+      @markup.push_parser(space_eater(token))
+    when :close_blockquote
+      @markup.close_element(@list, token)
+      @markup.pop_parser
+    else
+      raise "Parse error: expected #{@marker} or :close_blockquote got #{token}"
+    end
+  end
+end
+
+#
+# Parse a definition list.
+#
+class DefinitionListParser < Parser
+
+  def initialize(markup, element)
+    super(markup)
+    @list = element
+  end
+
+  def space_eater()
+    TokenEater.new(@markup, ' ') do
+      @markup.pop_parser
+      @markup.push_parser(DefinitionTermParser.new(@markup))
+    end
+  end
+
+  def grok(token)
+    case token.value
+    when '%'
+      @markup.push_parser(space_eater)
+    when :close_blockquote
+      @markup.close_element(@list, token)
+      @markup.pop_parser
+    else
+      raise "Parse error: expected #{@marker} or :close_blockquote got #{token}"
+    end
+  end
+end
+
+#
+# Parse the term part of a a definition list item.
+#
+class DefinitionTermParser < Parser
+
+  def initialize(markup)
+    super(markup)
+    @element     = @markup.open_element(:dt)
+    @after_brace = false
+  end
+
+  def grok(token)
+    case token.value
+    when '%'
+      @after_brace = true
+    when :newline
+      if @after_brace
+        @element.rstrip!
+        @markup.close_element(@element, token)
+        @markup.pop_parser
+        @markup.push_parser(DefinitionDefinitionParser.new(@markup))
+      else
+        raise "Parse error. Got newline at #{token} without preceding '%'"
+      end
+    when '\\'
+      @markup.push_parser(SlashParser.new(@markup))
+    when '['
+      @markup.push_parser(LinkParser.new(@markup))
+    else
+      @element.add_text(token.value)
+    end
+  end
+end
+
+#
+# Parse the definition part of a a definition list item.
+#
+class DefinitionDefinitionParser < Parser
+
+  def initialize(markup)
+    super(markup)
+    @element = @markup.open_element(:dd)
+  end
+
+  def grok(token)
+    case token.value
+    when :blank, :newline
+      raise "Parse error #{token}"
+    when :open_blockquote
+      @markup.push_parser(BlockquoteOrListParser.new(@markup, @brace_is_eof))
+    when :open_verbatim
+      v = @markup.open_element(:pre)
+      @markup.push_parser(VerbatimParser.new(@markup, v))
+    when :close_blockquote
+      @markup.close_element(@element, token)
+      @markup.pop_parser
+      @markup.current_parser.grok(token) # Pass along to DL parser
+    when '%'
+      @markup.close_element(@element, token)
+      @markup.pop_parser
+      @markup.current_parser.grok(token)
+    else
+      p = @markup.open_element(:p)
+      @markup.push_parser(ParagraphParser.new(@markup, p))
+      @markup.current_parser.grok(token)
+    end
+  end
+end
+
+#
+# Helper for when when we need to eat one token and then do something.
+#
+class TokenEater < Parser
+
+  def initialize(markup, value, &block)
+    super(markup)
+    @value = value
+    @block = block
+  end
+
+  def grok(token)
+    case token.value
+    when @value
+      @block.call
+    else
+      raise "Parse error expected <#{@value}> got #{token.value}"
+    end
+  end
+end
+
+#
+# Parse an emacs modeline.
+#
 class PossibleModelineParser < Parser
 
   def initialize(markup, token)
@@ -367,6 +689,10 @@ class PossibleModelineParser < Parser
   end
 end
 
+
+#
+# Parse the beginning of a named section.
+#
 class SectionStartParser < Parser
 
   def initialize(markup, token)
@@ -386,6 +712,34 @@ class SectionStartParser < Parser
   end
 end
 
+#
+# Parse the name of a named section before passing things off to a
+# DocumentParser.
+#
+class SectionNameParser < Parser
+
+  def initialize(markup)
+    super(markup)
+    @name = ''
+  end
+
+  def grok(token)
+    case token.value
+    when :blank
+      @markup.pop_parser
+      tag = @name.to_sym
+      e = @markup.open_element(tag)
+      @markup.push_parser(DocumentParser.new(@markup, e, true))
+    else
+      # FIXME: should check that we only get legal name characters.
+      @name << token.value
+    end
+  end
+end
+
+#
+# Parse the end of a named section.
+#
 class SectionEndParser < Parser
 
   def initialize(markup, token, section)
@@ -409,7 +763,28 @@ class SectionEndParser < Parser
   end
 end
 
+#
+# Parse what follows a slash: either an escaped character or the name
+# of a brace-delimited section.
+#
+class SlashParser < Parser
 
+  def grok(token)
+    case token.value
+    when '\\', '{', '}', '*', '-', '#', '[', '<', '|', '%'
+      @markup.pop_parser
+      @markup.current_element.add_text(token.value)
+    else
+      @markup.pop_parser
+      @markup.push_parser(NameParser.new(@markup))
+      @markup.current_parser.grok(token)
+    end
+  end
+end
+
+#
+# Parse the name of a brace-delimited section.
+#
 class NameParser < Parser
 
   def initialize(markup)
@@ -435,28 +810,9 @@ class NameParser < Parser
   end
 end
 
-class SectionNameParser < Parser
-
-  def initialize(markup)
-    super(markup)
-    @name = ''
-  end
-
-  def grok(token)
-    case token.value
-    when :blank
-      @markup.pop_parser
-      tag = @name.to_sym
-      e = @markup.open_element(tag)
-      @markup.push_parser(DocumentParser.new(@markup, e, true))
-    else
-      # FIXME: should check that we only get legal name characters.
-      @name << token.value
-    end
-  end
-end
-
-
+#
+# Parse a simple (i.e. not a subdocument) brace-delimited section.
+#
 class BraceDelimetedParser < Parser
 
   def initialize(markup, element)
@@ -479,21 +835,10 @@ class BraceDelimetedParser < Parser
   end
 end
 
-class SlashParser < Parser
 
-  def grok(token)
-    case token.value
-    when '\\', '{', '}', '*', '-', '#', '[', '<', '|', '%'
-      @markup.pop_parser
-      @markup.current_element.add_text(token.value)
-    else
-      @markup.pop_parser
-      @markup.push_parser(NameParser.new(@markup))
-      @markup.current_parser.grok(token)
-    end
-  end
-end
-
+#
+# Parse an inline link.
+#
 class LinkParser < Parser
 
   def initialize(markup)
@@ -530,10 +875,62 @@ class LinkParser < Parser
   end
 end
 
+#
+# Parse a link definition. The Link ha already been parsed.
+#
+class LinkdefParser < Parser
+
+  def initialize(markup)
+    super(markup)
+    @linkdef = @markup.current_element
+  end
+
+  def grok(token)
+    case token.value
+    when ' '
+    when '<'
+      @markup.push_parser(UrlParser.new(@markup))
+    when :blank
+      @markup.pop_parser
+      @markup.close_element(@linkdef)
+    end
+  end
+end
+
+#
+# Parse the URL part of a linkdef.
+#
+class UrlParser < Parser
+
+  def initialize(markup)
+    super(markup)
+    @url = @markup.open_element(:url)
+  end
+
+  def grok(token)
+    case token.value
+    when '>'
+      @markup.pop_parser
+      @markup.close_element(@url)
+    else
+      @url.add_text(token.value)
+    end
+  end
+end
+
 
 #
 # Parse something that could either be a link at the start of a
-# paragraph or a linkdef.
+# paragraph or a linkdef. This one is a bit funny because when we push
+# this parser we also immediately push a LinkParser which will have
+# parsed the stuff between []'s. Then we either see a space and a '<'
+# indicating we're in a linkdef in which case we make our element a
+# :linkdef and push a LinkdefParser to parse the rest, or we don't in
+# which case we're in a paragraph that starts with a link in which
+# case we need to change our element to a :p and pass along the tokens
+# we've seen. Note that because this parser is pushed before the
+# LinkParser, our element is opened first and is thus the parent of
+# the :link.
 #
 class AmbiguousLinkParser < Parser
 
@@ -561,313 +958,10 @@ class AmbiguousLinkParser < Parser
   end
 end
 
-class LinkdefParser < Parser
 
-  def initialize(markup)
-    super(markup)
-    @linkdef = @markup.current_element
-  end
-
-  def grok(token)
-    case token.value
-    when ' '
-    when '<'
-      @markup.push_parser(UrlParser.new(@markup))
-    when :blank
-      @markup.pop_parser
-      @markup.close_element(@linkdef)
-    end
-  end
-end
-
-class UrlParser < Parser
-
-  def initialize(markup)
-    super(markup)
-    @url = @markup.open_element(:url)
-  end
-
-  def grok(token)
-    case token.value
-    when '>'
-      @markup.pop_parser
-      @markup.close_element(@url)
-    else
-      @url.add_text(token.value)
-    end
-  end
-end
-
-class ParagraphParser < Parser
-
-  def initialize(markup, p, brace_is_eof=false)
-    super(markup, brace_is_eof)
-    @p = p
-  end
-
-  def grok(token)
-    case token.value
-    when :blank
-      @markup.close_element(@p, token)
-      @markup.pop_parser
-    when :newline
-      @p.add_text(' ')
-    when '\\'
-      @markup.push_parser(SlashParser.new(@markup))
-    when '['
-      @markup.push_parser(LinkParser.new(@markup))
-    when '}'
-      if @brace_is_eof
-        @markup.close_element(@p, token)
-        @markup.pop_parser
-        @markup.current_parser.grok(token)
-      end
-    else
-      @p.add_text(token.value)
-    end
-  end
-end
-
-class HeaderParser < Parser
-
-  def initialize(markup, brace_is_eof=false)
-    super(markup, brace_is_eof)
-    @stars = 1
-  end
-
-  def grok(token)
-    case token.value
-    when "*"
-      @stars += 1
-    when " "
-      h = @markup.open_element("h#{@stars}".to_sym)
-      @markup.pop_parser
-      @markup.push_parser(ParagraphParser.new(@markup, h, @brace_is_eof))
-    else
-      raise "Bad token: #{token}"
-    end
-  end
-end
-
-class BlockquoteOrListParser < Parser
-
-  def grok(token)
-    tag, parserClass =
-      case token.value
-      when '#'
-        [:ol, ListParser]
-      when '-'
-        [:ul, ListParser]
-      when '%'
-        [:dl, DefinitionListParser]
-      else
-        [:blockquote, IndentedElementParser]
-      end
-
-    parser = parserClass.new(@markup, @markup.open_element(tag))
-    @markup.pop_parser
-    @markup.push_parser(parser)
-    parser.grok(token)
-  end
-end
-
-class IndentedElementParser < Parser
-
-  def initialize(markup, element)
-    super(markup)
-    @element = element
-  end
-
-  def grok(token)
-    case token.value
-    when :blank, :newline
-      raise "Parse error #{token}"
-    when "*"
-      @markup.push_parser(HeaderParser.new(@markup))
-    when :open_blockquote
-      @markup.push_parser(BlockquoteOrListParser.new(@markup, @brace_is_eof))
-    when :open_verbatim
-      v = @markup.open_element(:pre)
-      @markup.push_parser(VerbatimParser.new(@markup, v))
-    when :close_blockquote
-      @markup.close_element(@element, token)
-      @markup.pop_parser
-    else
-      p = @markup.open_element(:p)
-      @markup.push_parser(ParagraphParser.new(@markup, p))
-      @markup.current_parser.grok(token)
-    end
-  end
-end
-
-class ListParser < Parser
-
-  def initialize(markup, list)
-    super(markup)
-    @list   = list
-    @marker = nil
-  end
-
-  def space_eater(token)
-    TokenEater.new(@markup, ' ') do
-      @markup.pop_parser
-      token.tokenizer.add_indentation(2)
-      item = @markup.open_element(:li)
-      @markup.push_parser(IndentedElementParser.new(@markup, item))
-    end
-  end
-
-  def grok(token)
-    # The first token we see is our list marker (either '#' or '-').
-    if @marker.nil? then @marker = token.value end
-
-    case token.value
-    when @marker
-      @markup.push_parser(space_eater(token))
-    when :close_blockquote
-      @markup.close_element(@list, token)
-      @markup.pop_parser
-    else
-      raise "Parse error: expected #{@marker} or :close_blockquote got #{token}"
-    end
-  end
-end
-
-class DefinitionListParser < Parser
-
-  def initialize(markup, element)
-    super(markup)
-    @list = element
-  end
-
-  def space_eater()
-    TokenEater.new(@markup, ' ') do
-      @markup.pop_parser
-      @markup.push_parser(DefinitionTermParser.new(@markup))
-    end
-  end
-
-  def grok(token)
-    case token.value
-    when '%'
-      @markup.push_parser(space_eater)
-    when :close_blockquote
-      @markup.close_element(@list, token)
-      @markup.pop_parser
-    else
-      raise "Parse error: expected #{@marker} or :close_blockquote got #{token}"
-    end
-  end
-end
-
-class DefinitionTermParser < Parser
-
-  def initialize(markup)
-    super(markup)
-    @element     = @markup.open_element(:dt)
-    @after_brace = false
-  end
-
-  def grok(token)
-    case token.value
-    when '%'
-      @after_brace = true
-    when :newline
-      if @after_brace
-        @element.rstrip!
-        @markup.close_element(@element, token)
-        @markup.pop_parser
-        @markup.push_parser(DefinitionDefinitionParser.new(@markup))
-      else
-        raise "Parse error. Got newline at #{token} without preceding '%'"
-      end
-    when '\\'
-      @markup.push_parser(SlashParser.new(@markup))
-    when '['
-      @markup.push_parser(LinkParser.new(@markup))
-    else
-      @element.add_text(token.value)
-    end
-  end
-end
-
-class DefinitionDefinitionParser < Parser
-
-  def initialize(markup)
-    super(markup)
-    @element = @markup.open_element(:dd)
-  end
-
-  def grok(token)
-    case token.value
-    when :blank, :newline
-      raise "Parse error #{token}"
-    when :open_blockquote
-      @markup.push_parser(BlockquoteOrListParser.new(@markup, @brace_is_eof))
-    when :open_verbatim
-      v = @markup.open_element(:pre)
-      @markup.push_parser(VerbatimParser.new(@markup, v))
-    when :close_blockquote
-      @markup.close_element(@element, token)
-      @markup.pop_parser
-      @markup.current_parser.grok(token) # Pass along to DL parser
-    when '%'
-      @markup.close_element(@element, token)
-      @markup.pop_parser
-      @markup.current_parser.grok(token)
-    else
-      p = @markup.open_element(:p)
-      @markup.push_parser(ParagraphParser.new(@markup, p))
-      @markup.current_parser.grok(token)
-    end
-  end
-end
-
-class TokenEater < Parser
-
-  def initialize(markup, value, &block)
-    super(markup)
-    @value = value
-    @block = block
-  end
-
-  def grok(token)
-    case token.value
-    when @value
-      @block.call
-    else
-      raise "Parse error expected <#{@value}> got #{token.value}"
-    end
-  end
-end
-
-class VerbatimParser < Parser
-
-  def initialize(markup, verbatim)
-    super(markup)
-    @verbatim = verbatim
-    @blanks   = 0
-  end
-
-  def grok(token)
-    case token.value
-    when :blank
-      @blanks += 1
-    when :newline
-      @verbatim.add_text("\n")
-    when :close_verbatim
-      @markup.close_element(@verbatim, token)
-      @markup.pop_parser
-    else
-      if @blanks > 0
-        (@blanks + 1).times { @verbatim.add_text("\n") }
-        @blanks = 0
-      end
-      @verbatim.add_text(token.value)
-    end
-  end
-end
-
+#
+# The class contaiting the main public API. The only functions
+#
 class Markup
 
   attr_reader :subdocs
