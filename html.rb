@@ -56,9 +56,9 @@ class HTML
 
     def close_element(tag)
       if is_div? tag
-        @block.call('</div>\n');
+        @block.call("</div>\n");
       elsif is_span? tag
-        @block.call('</span>');
+        @block.call("</span>");
       else
         @block.call("</#{tag}>")
         @block.call("\n") if @options[:block_elements].include?(tag)
