@@ -1,9 +1,12 @@
 #!/usr/bin/env ruby -w
 # encoding: UTF-8
 
-require './markup'
+libdir = File.dirname(__FILE__)
+$LOAD_PATH.unshift(libdir) unless $LOAD_PATH.include?(libdir)
 
-class HTML < Renderer
+require 'markup'
+
+class HTML
 
   @@standard_options = {
     :block_elements => [ :body,
@@ -16,29 +19,65 @@ class HTML < Renderer
                        ]
   }
 
-  def initialize(options=nil)
+  class Yielder < Renderer
+
+    def initialize(block, options)
+      @block   = block
+      @options = options
+    end
+
+    def open_element(tag)
+      @block.call("\n") if @options[:block_elements].include?(tag)
+      @block.call("<#{tag}>")
+    end
+
+    def close_element(tag)
+      @block.call("</#{tag}>")
+      @block.call("\n") if @options[:block_elements].include?(tag)
+    end
+
+    def render_text(text)
+      @block.call(text.gsub(/&/, "&amp;").gsub(/</, "&lt;").gsub(/>/, "&gt;"))
+    end
+  end
+
+
+  def initialize(markup, options=nil)
+    @markup  = markup
     @options = options || @@standard_options
   end
 
-  def open_element(tag)
-    print "\n" if @options[:block_elements].include?(tag)
-    print "<#{tag}>"
+  # Emit the HTML to the block one bit of text at a time. Useful for
+  # things like Sinatra and ERB.
+  def each(&block)
+    @markup.render(Yielder.new(block, @options))
   end
 
-  def close_element(tag)
-    print "</#{tag}>"
-    print "\n" if @options[:block_elements].include?(tag)
+  # Output HTML to the named file.
+  def to_file(file)
+    File.open(file, 'w') do |f|
+      each { |text| f.print text }
+    end
   end
 
-  def render_text(text)
-    print text.gsub(/&/, "&amp;").gsub(/</, "&lt;").gsub(/>/, "&gt;")
+  # Return the HTML as a string.
+  def to_s()
+    s = ''
+    each { |text| s << text }
+    s
   end
 end
 
+
 if __FILE__ == $0
 
+  parser = Markup.new(Set.new([:note, :comment]))
+
   ARGV.each do |file|
-    Markup.new(Set.new([:note, :comment])).parse_file(file).render(HTML.new)
+    markup = parser.parse_file(file)
+    #HTML.new(markup).each { |s| print s }
+    #HTML.new(markup).to_file('testout.html')
+    print HTML.new(markup)
   end
 
 end
