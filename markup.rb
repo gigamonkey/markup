@@ -783,7 +783,7 @@ class SlashParser < Parser
 
   def grok(token)
     case token.value
-    when '\\', '{', '}', '*', '-', '#', '[', '<', '|', '%'
+    when '\\', '{', '}', '*', '-', '#', '[', ']', '<', '|', '%'
       @markup.pop_parser
       @markup.current_element.add_text(token.value)
     else
