@@ -28,51 +28,8 @@ class HTML
     :spans => [],
   }
 
-  class Yielder < Renderer
-
-    def initialize(block, options)
-      @block   = block
-      @options = options
-    end
-
-    def is_div?(tag)
-      @options[:divs].include?(tag)
-    end
-
-    def is_span?(tag)
-      @options[:spans].include?(tag)
-    end
-
-    def open_element(tag)
-      if is_div? tag
-        @block.call("\n<div class='#{tag}'>")
-      elsif is_span? tag
-        @block.call("<span class='#{tag}'>")
-      else
-        @block.call("\n") if @options[:block_elements].include?(tag)
-        @block.call("<#{tag}>")
-      end
-    end
-
-    def close_element(tag)
-      if is_div? tag
-        @block.call("</div>\n");
-      elsif is_span? tag
-        @block.call("</span>");
-      else
-        @block.call("</#{tag}>")
-        @block.call("\n") if @options[:block_elements].include?(tag)
-      end
-    end
-
-    def render_text(text)
-      @block.call(text.gsub(/&/, "&amp;").gsub(/</, "&lt;").gsub(/>/, "&gt;"))
-    end
-  end
-
-
   def initialize(markup, options={})
-    @markup  = markup
+    @markup   = markup
     h = @@standard_options.merge(options)
     @options = {
       :block_elements => Set.new(h[:block_elements]),
@@ -81,10 +38,61 @@ class HTML
     }
   end
 
+  def is_block?(tag)
+    @options[:block_elements].include? tag
+  end
+
+  def is_div?(tag)
+    @options[:divs].include?(tag)
+  end
+
+  def is_span?(tag)
+    @options[:spans].include?(tag)
+  end
+
+  def open_tag(tag, attributes={})
+    s = "#{(is_block? tag) ? "\n" : ""}<#{tag}"
+    attributes.each { |k, v| s << " #{k}='#{v}'" }
+    s << ">"
+  end
+
+  def close_tag(tag)
+    "</#{tag}>#{(is_block? tag) ? "\n" : ""}"
+  end
+
+  def escaped_text(text)
+    text.gsub(/&/, "&amp;").gsub(/</, "&lt;").gsub(/>/, "&gt;")
+  end
+
+  def walk(element, linkdefs, block)
+    if element.is_a?(String)
+      block.call escaped_text(element)
+    else
+      if element.tag == :link
+        tag = :a
+        attributes = { :href => linkdefs[element.link_key!] }
+      elsif is_div? element.tag
+        tag = :div
+        attributes = { :class => element.tag }
+      elsif is_span? element.tag
+        tag = :span
+        attributes = { :class => element.tag }
+      else
+        tag = element.tag
+        attributes = {}
+      end
+
+      block.call open_tag tag, attributes
+      element.children.each { |c| walk c, linkdefs, block }
+      block.call close_tag tag
+    end
+  end
+
   # Emit the HTML to the block one bit of text at a time. Useful for
   # things like Sinatra and ERB.
   def each(&block)
-    @markup.render(Yielder.new(block, @options))
+    linkdefs = @markup.link_defs!
+    walk @markup, linkdefs, block
   end
 
   # Output HTML to the named file.

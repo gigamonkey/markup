@@ -57,18 +57,6 @@ class Element
     @children.each(&block)
   end
 
-  def render(renderer)
-    renderer.open_element(@tag)
-    @children.each do |child|
-      if child.is_a?(String)
-        renderer.render_text(child)
-      else
-        child.render(renderer)
-      end
-    end
-    renderer.close_element(@tag)
-  end
-
   def add_text(text)
     if @children[-1].is_a?(String)
       @children[-1] << text
@@ -100,6 +88,30 @@ class Element
     [@tag, *@children.map { |c| c.is_a?(Element) ? c.to_a : c }]
   end
 
+  def link_defs
+    defs = {}
+    @children.each do |c|
+      if c.tag == :link_def
+        a = c.to_a
+        defs[a[1][1]] = a[2][1]
+      end
+    end
+    defs
+  end
+
+  def link_defs!
+    defs = link_defs
+    @children.select! { |c| c.tag != :link_def }
+    defs
+  end
+
+  def link_key!
+    if tag == :link
+      key = @children.find { |c| c.is_a?(Element) and c.tag == :key }
+      @children.select! { |c| !(c.is_a?(Element) and c.tag == :key) }
+      (key || self).just_text
+    end
+  end
 end
 
 #
@@ -890,7 +902,7 @@ class LinkParser < Parser
 end
 
 #
-# Parse a link definition. The Link ha already been parsed.
+# Parse a link definition. The Link has already been parsed.
 #
 class LinkdefParser < Parser
 
@@ -1053,26 +1065,19 @@ class Markup
 
 end
 
-
-#
-# Base class for renderers. (See html.rb for a simple example.)
-#
-class Renderer
-
-  def open_element(tag) end
-
-  def close_element(tag) end
-
-  def render_text(text) end
-
-end
-
 if __FILE__ == $0
 
   ARGV.each do |file|
-    puts "\n\nFile: #{file}:::\n"
+  #  puts "\n\nFile: #{file}:::\n"
     print JSON.dump(Markup.new(:subdocs => [:note]).parse_file(file).to_a)
-    #File.open(file) { |f| puts Markup.new.tokenize(f).to_a }
+  #  #File.open(file) { |f| puts Markup.new.tokenize(f).to_a }
   end
+
+  #ARGV.each do |file|
+    #markup = Markup.new(:subdocs => [:note]).parse_file(file)
+    #markup.link_defs.each do |k, v|
+    #  puts "#{k} => #{v}"
+    #end
+  #end
 
 end
