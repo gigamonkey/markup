@@ -980,9 +980,9 @@ class Markup
 
   attr_reader :subdocs
 
-  def initialize(subdocs=Set.new, tabwidth=8)
-    @subdocs   = subdocs
-    @cleaner   = TextCleaner.new(tabwidth)
+  def initialize(options)
+    @subdocs   = Set.new(options[:subdocs] || [])
+    @cleaner   = TextCleaner.new(options[:tabwidth] || 8)
     @tokenizer = Tokenizer.new
     @elements  = []
     @parsers   = []
@@ -1071,7 +1071,7 @@ if __FILE__ == $0
 
   ARGV.each do |file|
     puts "\n\nFile: #{file}:::\n"
-    print JSON.dump(Markup.new(Set.new([:note])).parse_file(file).to_a)
+    print JSON.dump(Markup.new(:subdocs => [:note]).parse_file(file).to_a)
     #File.open(file) { |f| puts Markup.new.tokenize(f).to_a }
   end
 
