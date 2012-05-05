@@ -841,6 +841,8 @@ class BraceDelimetedParser < Parser
       @markup.push_parser(SlashParser.new(@markup))
     when '['
       @markup.push_parser(LinkParser.new(@markup))
+    when :newline
+      @element.add_text(' ')
     else
       @element.add_text(token.value)
     end
